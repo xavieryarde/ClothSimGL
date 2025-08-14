@@ -1,0 +1,16 @@
+{
+  "dependencies": [
+    "sdl3",
+    "glm"
+  ],
+  "overrides": [
+    {
+      "name": "sdl3",
+      "version": "3.2.20#0"
+    },
+    {
+      "name": "glm",
+      "version": "1.0.1#3"
+    }
+  ]
+}
