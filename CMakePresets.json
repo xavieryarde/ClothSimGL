@@ -19,8 +19,8 @@
       }
     },
     {
-      "name": "x64-debug",
-      "displayName": "x64 Debug",
+      "name": "win64-dbg",
+      "displayName": "Win x64 Debug",
       "inherits": "windows-base",
       "architecture": {
         "value": "x64",
@@ -31,16 +31,16 @@
       }
     },
     {
-      "name": "x64-release",
-      "displayName": "x64 Release",
-      "inherits": "x64-debug",
+      "name": "win64-rel",
+      "displayName": "Win x64 Release",
+      "inherits": "win64-dbg",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
-      "name": "x86-debug",
-      "displayName": "x86 Debug",
+      "name": "win32-dbg",
+      "displayName": "Win x86 Debug",
       "inherits": "windows-base",
       "architecture": {
         "value": "x86",
@@ -51,9 +51,9 @@
       }
     },
     {
-      "name": "x86-release",
-      "displayName": "x86 Release",
-      "inherits": "x86-debug",
+      "name": "win32-rel",
+      "displayName": "Win x86 Release",
+      "inherits": "win32-dbg",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
@@ -61,20 +61,20 @@
   ],
   "buildPresets": [
     {
-      "name": "x64-debug",
-      "configurePreset": "x64-debug"
+      "name": "x64-dbg",
+      "configurePreset": "win64-dbg"
     },
     {
-      "name": "x64-release",
-      "configurePreset": "x64-release"
+      "name": "x64-rel",
+      "configurePreset": "win64-rel"
     },
     {
-      "name": "x86-debug",
-      "configurePreset": "x86-debug"
+      "name": "x86-dbg",
+      "configurePreset": "win32-dbg"
     },
     {
-      "name": "x86-release",
-      "configurePreset": "x64-release"
+      "name": "x86-rel",
+      "configurePreset": "win32-rel"
     }
   ]
 }
