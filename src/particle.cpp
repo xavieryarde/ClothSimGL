@@ -1,10 +1,11 @@
 #include <particle.hpp>
 
-Particle::Particle(const glm::vec3& startPos, float m) : position(startPos)
-    ,prevPosition(startPos)
-    ,acceleration(0.0f)
-    ,mass(m)
-    ,pinned(false)
+Particle::Particle(const glm::vec3& startPos, float m) 
+    : position(startPos)
+    , prevPosition(startPos)
+    , acceleration(0.0f)
+    , mass(m)
+    , pinned(false)
 {
 }
 

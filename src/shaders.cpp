@@ -1,6 +1,6 @@
 #include "shaders.hpp"
 
-Shader::Shader(): ID(0) {}
+Shader::Shader() : ID(0) {}
 
 
 Shader::Shader(const char* vertexPath, const char* fragmentPath)
