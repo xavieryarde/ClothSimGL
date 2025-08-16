@@ -13,8 +13,11 @@ Simulation::Simulation()
     , window(nullptr)
     , context(nullptr)
     , basePath(nullptr)
+    , mousePos(glm::vec2(0.0f))
     , deltaTime(0.0f)
     , lastFrame(0.0f)
+    , tearRadius(0.1f)
+    , leftMouseDown(false)
     , camera(glm::vec3((cols - 1)* spacing * 0.5f, -(rows - 1) * spacing * 0.5f, 10.0f))
 {
     // Create particles
@@ -72,6 +75,8 @@ Simulation::Simulation()
     // Pin only the top corners
    /* particles[0].pinned = true;
     particles[cols - 1].pinned = true;*/
+
+    springActive.resize(springs.size(), true);
 }
 
 void Simulation::run() {
@@ -84,10 +89,13 @@ void Simulation::run() {
 
         processEvent();
 
-        
-        for (auto& s : springs) {
-            s.applyForces();
-        }
+        handleMouseTearing();
+
+        for (size_t i = 0; i < springs.size(); ++i) {
+            if (springActive[i]) {
+                springs[i].applyForces();
+            }
+        } 
 
         for (auto& p : particles) {
 
@@ -95,7 +103,7 @@ void Simulation::run() {
             p.addForce(glm::vec3(0.0f, -9.81f * p.mass, 0.0f));
 
             // Wind
-            p.addForce(glm::vec3(-6.0f, 0.0f, 2.0f));
+            //p.addForce(glm::vec3(-6.0f, 0.0f, 2.0f));
         }
 
         for (auto& p : particles) {
@@ -103,15 +111,33 @@ void Simulation::run() {
         }
 
         for (int i = 0; i < 3; ++i) {
-            for (auto& s : springs) {
-                s.satisfyConstraint();
+            for (size_t j = 0; j < springs.size(); ++j) {
+                if (springActive[j]) {
+                    springs[j].satisfyConstraint();
+                }
             }
-        }
-            
+        }     
 
         render();
     }
     clean();
+}
+
+void Simulation::reset() {
+    
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            int idx = y * cols + x;
+            glm::vec3 originalPos = glm::vec3(x * spacing, -y * spacing, 0.0f);
+
+            particles[idx].position = originalPos;
+            particles[idx].prevPosition = originalPos; 
+            particles[idx].acceleration = glm::vec3(0.0f);
+        }
+    }
+
+    
+    std::fill(springActive.begin(), springActive.end(), true);
 }
 
 bool Simulation::init() {
@@ -227,6 +253,109 @@ void Simulation::initSprings() {
     glBindVertexArray(0);
 }
 
+glm::vec3 Simulation::screenToWorld(glm::vec2 screenPos, float depth) {
+   
+    glm::mat4 view = camera.GetViewMatrix();
+    glm::mat4 projection = glm::perspective(45.0f, (float)w / (float)h, 0.1f, 100.0f);
+    
+    glm::vec4 viewport = glm::vec4(0, 0, w, h);
+
+    glm::vec3 worldPos = glm::unProject(
+        glm::vec3(screenPos.x, h - screenPos.y, depth),
+        view,      
+        projection,
+        viewport
+    );
+
+    return worldPos;
+}
+
+void Simulation::handleMouseTearing() {
+    if (leftMouseDown) {
+
+        glm::vec3 nearPoint = screenToWorld(mousePos, 0.0f);
+        glm::vec3 farPoint = screenToWorld(mousePos, 1.0f);
+        glm::vec3 rayDir = glm::normalize(farPoint - nearPoint);
+
+        Particle* targetParticle = findClosestParticleToRay(nearPoint, rayDir);
+
+        if (targetParticle != nullptr) {
+            tearSpringsAroundPoint(targetParticle->position, tearRadius);
+        }
+    }
+}
+
+void Simulation::tearSpringsAroundPoint(glm::vec3 worldPos, float radius) {
+    int tornCount = 0; 
+
+    for (size_t i = 0; i < springs.size(); ++i) {
+        if (!springActive[i]) continue;
+
+        glm::vec3 p1 = springs[i].p1->position;
+        glm::vec3 p2 = springs[i].p2->position;
+
+        float dist1 = glm::length(worldPos - p1);
+        float dist2 = glm::length(worldPos - p2);
+
+        if (dist1 < radius || dist2 < radius) {
+            springActive[i] = false;
+            tornCount++;
+            continue;
+        }
+
+        glm::vec3 springVec = p2 - p1;
+        float springLength = glm::length(springVec);
+
+        if (springLength > 0) {
+            glm::vec3 springDir = springVec / springLength;
+            glm::vec3 toTearPoint = worldPos - p1;
+
+            float t = glm::clamp(glm::dot(toTearPoint, springDir), 0.0f, springLength);
+            glm::vec3 closestPoint = p1 + springDir * t;
+
+            float distanceToTear = glm::length(worldPos - closestPoint);
+
+            if (distanceToTear < radius) {
+                springActive[i] = false;
+                tornCount++;
+            }
+        }
+    }
+
+    if (tornCount > 0) {
+        SDL_Log("Tore %d springs at (%.2f, %.2f, %.2f)", tornCount, worldPos.x, worldPos.y, worldPos.z);
+    }
+}
+
+Particle* Simulation::findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 rayDir) {
+    float min_dist_sq = std::numeric_limits<float>::max();
+    Particle* closest_particle = nullptr;
+
+    if (particles.empty()) {
+        return nullptr;
+    }
+
+    for (auto& p : particles) {
+       
+        glm::vec3 vec_to_particle = p.position - rayOrigin;
+        
+        glm::vec3 closest_point_on_ray = rayOrigin + glm::dot(vec_to_particle, rayDir) * rayDir;
+       
+        glm::vec3 vec = p.position - closest_point_on_ray;
+        float dist_sq = glm::dot(vec, vec);
+
+        if (dist_sq < min_dist_sq) {
+            min_dist_sq = dist_sq;
+            closest_particle = &p;
+        }
+    }
+    
+    if (closest_particle && sqrt(min_dist_sq) < tearRadius * 2.0f) {
+        return closest_particle;
+    }
+
+    return nullptr;
+}
 
 void Simulation::processEvent() {
     SDL_Event event;
@@ -253,10 +382,27 @@ void Simulation::processEvent() {
                     SDL_SetWindowFullscreen(window, false);
                 }
                 break;
+            case SDLK_R:
+                reset();
+                break;
 
             default:
                 break;
             }
+        }
+        else if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                leftMouseDown = true;
+                mousePos = glm::vec2(event.button.x, event.button.y);
+            }
+        }
+        else if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            if (event.button.button == SDL_BUTTON_LEFT) {
+                leftMouseDown = false;
+            }
+        }
+        else if (event.type == SDL_EVENT_MOUSE_MOTION) {
+            mousePos = glm::vec2(event.motion.x, event.motion.y);
         }
         else if (event.type == SDL_EVENT_WINDOW_RESIZED)
         {
@@ -285,7 +431,7 @@ void Simulation::render() {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
     
     // draw particles
-    std::vector<glm::vec3> positions;
+   /* std::vector<glm::vec3> positions;
     positions.reserve(particles.size());
     for (auto& p : particles) 
     {
@@ -295,21 +441,27 @@ void Simulation::render() {
     glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
     particleShader.setVec3("color", glm::vec3(1.0f, 0.9f, 0.3f));
     glBindVertexArray(particleVAO);
-    glDrawArrays(GL_POINTS, 0, positions.size());
+    glDrawArrays(GL_POINTS, 0, positions.size());*/
 
     // draw springs
-    std::vector<glm::vec3> springPositions;
-    springPositions.reserve(springs.size() * 2);
-    for (auto& s : springs) {
-        springPositions.emplace_back(s.p1->position);
-        springPositions.emplace_back(s.p2->position);
-    }
-    glBindBuffer(GL_ARRAY_BUFFER, springVBO);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, springPositions.size() * sizeof(glm::vec3), springPositions.data());
-    particleShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
-    glBindVertexArray(springVAO);
-    glDrawArrays(GL_LINES, 0, springPositions.size());
+    std::vector<glm::vec3> activeSpringPositions;
+    activeSpringPositions.reserve(springs.size() * 2);
 
+    for (size_t i = 0; i < springs.size(); ++i) {
+        if (springActive[i]) {
+            activeSpringPositions.emplace_back(springs[i].p1->position);
+            activeSpringPositions.emplace_back(springs[i].p2->position);
+        }
+    }
+
+    if (!activeSpringPositions.empty()) {
+        glBindBuffer(GL_ARRAY_BUFFER, springVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, activeSpringPositions.size() * sizeof(glm::vec3),
+            activeSpringPositions.data());
+        particleShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
+        glBindVertexArray(springVAO);
+        glDrawArrays(GL_LINES, 0, activeSpringPositions.size());
+    }
 
     SDL_GL_SwapWindow(window);
 }

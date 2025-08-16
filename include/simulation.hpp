@@ -12,7 +12,7 @@
 constexpr int WinWidth = 800;
 constexpr int WinHeight = 600;
 constexpr int rows = 30;
-constexpr int cols = 30;
+constexpr int cols = 40;
 constexpr float spacing = 0.18f;
 
 namespace fs = std::filesystem;
@@ -39,14 +39,24 @@ private:
 	const char* basePath;
 	float deltaTime;
 	float lastFrame;
+	glm::vec2 mousePos;
+	bool leftMouseDown;
+	float tearRadius;
+	std::vector<bool> springActive;
 
 private:
 	void initUBO();
 	void initParticle();
 	void initSprings();
 	void processEvent();
+	void handleMouseTearing();
+	void tearSpringsAroundPoint(glm::vec3 worldPos, float radius);
+	glm::vec3 screenToWorld(glm::vec2 screenPos, float depth = 0.0f);
+	glm::vec2 worldToScreen(const glm::vec3& worldPos);
+	Particle* findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 rayDir);
 	void render();
 	void framebuffer_size_callback(int width, int height);
+	void reset();
 	void clean();
 };
 
