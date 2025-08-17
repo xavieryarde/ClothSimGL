@@ -16,13 +16,15 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 find_package(SDL3 CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
+find_package(SDL3_image CONFIG REQUIRED)
+find_package(assimp CONFIG REQUIRED)
 
 file(GLOB SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DIR}/external/glad/src/gl.c)
 set(HEADERS ${CMAKE_SOURCE_DIR}/include)
 
 add_executable (${PROJECT_NAME} ${SOURCES})
 
-target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3 glm::glm) 
+target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3 glm::glm $<IF:$<TARGET_EXISTS:SDL3_image::SDL3_image-shared>,SDL3_image::SDL3_image-shared,SDL3_image::SDL3_image-static> assimp::assimp) 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/external/glad/include ${HEADERS}) 
 
 if (WIN32)

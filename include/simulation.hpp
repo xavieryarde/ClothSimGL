@@ -1,8 +1,10 @@
 #pragma once
 #include <glad/gl.h>
 #include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
 #include <filesystem>
 #include <vector>
+#include <cmath>
 #include "particle.hpp"
 #include "springs.hpp"
 #include "shaders.hpp"
@@ -25,12 +27,17 @@ public:
 
 private:
 	std::vector<Particle> particles;
-	std::vector<Spring> springs;
+	std::vector<Spring> springs; 
+	std::vector<unsigned int> clothIndices;
+	std::vector<glm::vec2> texCoords;
 	Camera camera;
 	Shader particleShader;
+	Shader clothShader;
 	GLuint particleVAO, particleVBO;
 	GLuint springVAO, springVBO;
 	GLuint uboMatrices;
+	GLuint clothVAO, clothVBO, clothTexVBO, clothEBO;
+	unsigned int clothTexture;
 	bool fullscreen;
 	bool running;
 	int w, h;
@@ -43,12 +50,16 @@ private:
 	bool leftMouseDown;
 	float tearRadius;
 	std::vector<bool> springActive;
+	bool isTexture;
+	glm::mat4 projectionMatrix;
 
 private:
 	void initUBO();
 	void initParticle();
 	void initSprings();
+	void initClothMesh();
 	void processEvent();
+	void handleMouseActivity();
 	void handleMouseTearing();
 	void tearSpringsAroundPoint(glm::vec3 worldPos, float radius);
 	glm::vec3 screenToWorld(glm::vec2 screenPos, float depth = 0.0f);
@@ -56,6 +67,7 @@ private:
 	Particle* findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 rayDir);
 	void render();
 	void framebuffer_size_callback(int width, int height);
+	unsigned int loadTexture(char const* path);
 	void reset();
 	void clean();
 };

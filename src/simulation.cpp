@@ -9,6 +9,11 @@ Simulation::Simulation()
     , particleVBO(0)
     , springVAO(0)
     , springVBO(0)
+    , clothVAO(0)
+    , clothVBO(0)
+    , clothTexVBO(0)
+    , clothTexture(0)
+    , clothEBO(0)
     , uboMatrices(0)
     , window(nullptr)
     , context(nullptr)
@@ -18,6 +23,8 @@ Simulation::Simulation()
     , lastFrame(0.0f)
     , tearRadius(0.1f)
     , leftMouseDown(false)
+    , isTexture(false)
+    , projectionMatrix(glm::mat4(0.0f))
     , camera(glm::vec3((cols - 1)* spacing * 0.5f, -(rows - 1) * spacing * 0.5f, 10.0f))
 {
     // Create particles
@@ -67,6 +74,34 @@ Simulation::Simulation()
         }
     }
 
+    // Generate texture coordinates
+    for (int y = 0; y < rows; ++y) {
+        for (int x = 0; x < cols; ++x) {
+            texCoords.emplace_back(
+                (float)x / (cols - 1),
+                (float)y / (rows - 1)
+            );
+        }
+    }
+
+    // Generate indices for cloth mesh
+    for (int y = 0; y < rows - 1; ++y) {
+        for (int x = 0; x < cols - 1; ++x) {
+            int topLeft = y * cols + x;
+            int topRight = y * cols + (x + 1);
+            int bottomLeft = (y + 1) * cols + x;
+            int bottomRight = (y + 1) * cols + (x + 1);
+
+            clothIndices.emplace_back(topLeft);
+            clothIndices.emplace_back(bottomLeft);
+            clothIndices.emplace_back(topRight);
+
+            clothIndices.emplace_back(topRight);
+            clothIndices.emplace_back(bottomLeft);
+            clothIndices.emplace_back(bottomRight);
+        }
+    }
+
     // Pin only the top row
     for (int x = 0; x < cols; ++x) {
         particles[x].pinned = true; 
@@ -75,6 +110,10 @@ Simulation::Simulation()
     // Pin only the top corners
    /* particles[0].pinned = true;
     particles[cols - 1].pinned = true;*/
+
+    // Pin like a flag
+    /*particles[0].pinned = true;
+    particles[(rows - 1) * cols].pinned = true;*/
 
     springActive.resize(springs.size(), true);
 }
@@ -89,7 +128,7 @@ void Simulation::run() {
 
         processEvent();
 
-        handleMouseTearing();
+        handleMouseActivity();
 
         for (size_t i = 0; i < springs.size(); ++i) {
             if (springActive[i]) {
@@ -103,7 +142,9 @@ void Simulation::run() {
             p.addForce(glm::vec3(0.0f, -9.81f * p.mass, 0.0f));
 
             // Wind
-            //p.addForce(glm::vec3(-6.0f, 0.0f, 2.0f));
+            float t = SDL_GetTicks() / 1000.0f;
+            float w = std::sin(t) * 2.0f;
+            p.addForce(glm::vec3(w, 0.0f, 0.0f));
         }
 
         for (auto& p : particles) {
@@ -124,20 +165,19 @@ void Simulation::run() {
 }
 
 void Simulation::reset() {
-    
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
             int idx = y * cols + x;
             glm::vec3 originalPos = glm::vec3(x * spacing, -y * spacing, 0.0f);
 
             particles[idx].position = originalPos;
-            particles[idx].prevPosition = originalPos; 
+            particles[idx].prevPosition = originalPos;
             particles[idx].acceleration = glm::vec3(0.0f);
         }
     }
 
-    
     std::fill(springActive.begin(), springActive.end(), true);
+
 }
 
 bool Simulation::init() {
@@ -154,6 +194,8 @@ bool Simulation::init() {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 6);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
 
     #ifdef __APPLE__
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
@@ -165,10 +207,6 @@ bool Simulation::init() {
         SDL_Log("SDL Window: %s", SDL_GetError());
         return false;
     }
-
-    /*if (!SDL_SetWindowRelativeMouseMode(window, true)) {
-        SDL_Log("SDL Mouse Mode: %s", SDL_GetError());
-    }*/
 
     context = SDL_GL_CreateContext(window);
 
@@ -184,6 +222,7 @@ bool Simulation::init() {
     }
 
     glEnable(GL_PROGRAM_POINT_SIZE);
+    glEnable(GL_MULTISAMPLE);
 
     basePath = SDL_GetBasePath();
 
@@ -200,9 +239,20 @@ bool Simulation::init() {
         (fs::path(basePath) / "assets" / "shaders" / "particleShader.frag").string().c_str()
     };
 
+    clothShader = {
+        (fs::path(basePath) / "assets" / "shaders" / "clothShader.vert").string().c_str(),
+        (fs::path(basePath) / "assets" / "shaders" / "clothShader.frag").string().c_str()
+    };
+
+    clothTexture = loadTexture((fs::path(basePath) / "assets" / "textures" / "cloth.jpg").string().c_str());
+
+    
     initParticle();
     initSprings();
+    initClothMesh();
     initUBO();
+
+    clothShader.setInt("clothTexture", 0);
 
     running = true;
     return true;
@@ -216,9 +266,9 @@ void Simulation::initUBO() {
     
     glBindBufferRange(GL_UNIFORM_BUFFER, 0, uboMatrices, 0, 2 * sizeof(glm::mat4));
 
-    glm::mat4 projection = glm::perspective(45.0f, (float)w / (float)h, 0.1f, 100.0f);
+    projectionMatrix = glm::perspective(45.0f, (float)w / (float)h, 0.1f, 100.0f);
     glBindBuffer(GL_UNIFORM_BUFFER, uboMatrices);
-    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4), glm::value_ptr(projection));
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4), glm::value_ptr(projectionMatrix));
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
@@ -253,26 +303,57 @@ void Simulation::initSprings() {
     glBindVertexArray(0);
 }
 
+void Simulation::initClothMesh() {
+    glGenVertexArrays(1, &clothVAO);
+    glBindVertexArray(clothVAO);
+
+    // Position VBO
+    glGenBuffers(1, &clothVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, clothVBO);
+    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(glm::vec3), nullptr, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // TexCoord VBO
+    glGenBuffers(1, &clothTexVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, clothTexVBO);
+    glBufferData(GL_ARRAY_BUFFER, texCoords.size() * sizeof(glm::vec2), texCoords.data(), GL_STATIC_DRAW);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
+    glEnableVertexAttribArray(1);
+
+    // EBO
+    glGenBuffers(1, &clothEBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, clothEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, clothIndices.size() * sizeof(unsigned int), clothIndices.data(), GL_STATIC_DRAW);
+
+    glBindVertexArray(0);
+}
+
+
 glm::vec3 Simulation::screenToWorld(glm::vec2 screenPos, float depth) {
    
     glm::mat4 view = camera.GetViewMatrix();
-    glm::mat4 projection = glm::perspective(45.0f, (float)w / (float)h, 0.1f, 100.0f);
     
     glm::vec4 viewport = glm::vec4(0, 0, w, h);
 
     glm::vec3 worldPos = glm::unProject(
         glm::vec3(screenPos.x, h - screenPos.y, depth),
         view,      
-        projection,
+        projectionMatrix,
         viewport
     );
 
     return worldPos;
 }
 
+void Simulation::handleMouseActivity() {
+    if (!isTexture) {
+        handleMouseTearing();
+    }
+}
+
 void Simulation::handleMouseTearing() {
     if (leftMouseDown) {
-
         glm::vec3 nearPoint = screenToWorld(mousePos, 0.0f);
         glm::vec3 farPoint = screenToWorld(mousePos, 1.0f);
         glm::vec3 rayDir = glm::normalize(farPoint - nearPoint);
@@ -322,9 +403,6 @@ void Simulation::tearSpringsAroundPoint(glm::vec3 worldPos, float radius) {
         }
     }
 
-    if (tornCount > 0) {
-        SDL_Log("Tore %d springs at (%.2f, %.2f, %.2f)", tornCount, worldPos.x, worldPos.y, worldPos.z);
-    }
 }
 
 Particle* Simulation::findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 rayDir) {
@@ -385,7 +463,10 @@ void Simulation::processEvent() {
             case SDLK_R:
                 reset();
                 break;
-
+            case SDLK_S:
+                reset();
+                isTexture = !isTexture;
+                break;
             default:
                 break;
             }
@@ -444,23 +525,46 @@ void Simulation::render() {
     glDrawArrays(GL_POINTS, 0, positions.size());*/
 
     // draw springs
-    std::vector<glm::vec3> activeSpringPositions;
-    activeSpringPositions.reserve(springs.size() * 2);
+    if (!isTexture) {
+        std::vector<glm::vec3> activeSpringPositions;
+        activeSpringPositions.reserve(springs.size() * 2);
 
-    for (size_t i = 0; i < springs.size(); ++i) {
-        if (springActive[i]) {
-            activeSpringPositions.emplace_back(springs[i].p1->position);
-            activeSpringPositions.emplace_back(springs[i].p2->position);
+        for (size_t i = 0; i < springs.size(); ++i) {
+            if (springActive[i]) {
+                activeSpringPositions.emplace_back(springs[i].p1->position);
+                activeSpringPositions.emplace_back(springs[i].p2->position);
+            }
+        }
+
+        if (!activeSpringPositions.empty()) {
+            glBindBuffer(GL_ARRAY_BUFFER, springVBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, activeSpringPositions.size() * sizeof(glm::vec3),
+                activeSpringPositions.data());
+            particleShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
+            glBindVertexArray(springVAO);
+            glDrawArrays(GL_LINES, 0, activeSpringPositions.size());
         }
     }
+    else {
+        // draw textures
+        clothShader.use();
+        glm::mat4 model = glm::mat4(1.0f);
+        clothShader.setMat4("model", model);
 
-    if (!activeSpringPositions.empty()) {
-        glBindBuffer(GL_ARRAY_BUFFER, springVBO);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, activeSpringPositions.size() * sizeof(glm::vec3),
-            activeSpringPositions.data());
-        particleShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
-        glBindVertexArray(springVAO);
-        glDrawArrays(GL_LINES, 0, activeSpringPositions.size());
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, clothTexture);
+
+        std::vector<glm::vec3> positions;
+        positions.reserve(particles.size());
+        for (auto& p : particles) {
+            positions.emplace_back(p.position);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, clothVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
+
+        glBindVertexArray(clothVAO);
+        glDrawElements(GL_TRIANGLES, clothIndices.size(), GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
     }
 
     SDL_GL_SwapWindow(window);
@@ -469,15 +573,66 @@ void Simulation::render() {
 void Simulation::clean() {
     glDeleteVertexArrays(1, &particleVAO);
     glDeleteBuffers(1, &particleVBO);
+    glDeleteVertexArrays(1, &springVAO);
+    glDeleteBuffers(1, &springVBO);
+    glDeleteVertexArrays(1, &clothVAO);
+    glDeleteBuffers(1, &clothVBO);
+    glDeleteBuffers(1, &clothTexVBO);
+    glDeleteBuffers(1, &clothEBO);
     particleShader.clean();
+    clothShader.clean();
     SDL_GL_DestroyContext(context);
     SDL_DestroyWindow(window);
     SDL_Quit();
 }
 
 void Simulation::framebuffer_size_callback(int width, int height) {
-
     glViewport(0, 0, width, height);
+
+    projectionMatrix = glm::perspective(45.0f, (float)w / (float)h, 0.1f, 100.0f);
+
+    glBindBuffer(GL_UNIFORM_BUFFER, uboMatrices);
+    glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(glm::mat4), glm::value_ptr(projectionMatrix));
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+unsigned int Simulation::loadTexture(char const* path)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+
+    SDL_Surface* surface = IMG_Load(path);
+
+    if (surface)
+    {
+
+        int nrComponents = SDL_BYTESPERPIXEL(surface->format);
+        
+        GLenum format;
+        if (nrComponents == 1)
+            format = GL_RED;
+        else if (nrComponents == 3)
+            format = GL_RGB;
+        else if (nrComponents == 4)
+            format = GL_RGBA;
+
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, format, surface->w, surface->h, 0, format, GL_UNSIGNED_BYTE, surface->pixels);
+        glGenerateMipmap(GL_TEXTURE_2D);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        SDL_DestroySurface(surface);
+    }
+    else
+    {
+        SDL_Log("Failed to load texture: %s\n", SDL_GetError());
+    }
+
+    return textureID;
 }
 
 
