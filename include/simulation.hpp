@@ -9,6 +9,7 @@
 #include "springs.hpp"
 #include "shaders.hpp"
 #include "camera.hpp"
+#include "model.hpp"
 
 
 constexpr int WinWidth = 800;
@@ -19,6 +20,29 @@ constexpr float spacing = 0.18f;
 
 namespace fs = std::filesystem;
 
+enum class SIMMODE {
+	TEAR,
+	COLLISION,
+	FLAG,
+	LAST
+};
+
+enum class PINNINGMODE {
+	TOP_ROW,
+	CORNERS,
+	FLAG,
+	NONE,
+	LAST
+};
+
+struct PoleVertex {
+	glm::vec3 position;
+	glm::vec3 normal;
+};
+
+
+
+
 class Simulation {
 public:
 	Simulation();
@@ -26,18 +50,28 @@ public:
 	void run();
 
 private:
+	SIMMODE currentMode;
+	PINNINGMODE currentPinning;
 	std::vector<Particle> particles;
 	std::vector<Spring> springs; 
+	std::vector<PoleVertex> cylinder;
 	std::vector<unsigned int> clothIndices;
-	std::vector<glm::vec2> texCoords;
+	std::vector<glm::vec2> clothTexCoords;
+	std::vector<unsigned int> flagIndices;
+	std::vector<glm::vec2> flagTexCoords;
 	Camera camera;
 	Shader particleShader;
 	Shader clothShader;
+	Shader flagShader;
+	Shader poleShader;
 	GLuint particleVAO, particleVBO;
 	GLuint springVAO, springVBO;
+	GLuint poleVAO, poleVBO;
 	GLuint uboMatrices;
 	GLuint clothVAO, clothVBO, clothTexVBO, clothEBO;
+	GLuint flagVAO, flagVBO, flagTexVBO, flagNormVBO, flagEBO;
 	unsigned int clothTexture;
+	unsigned int flagTexture;
 	bool fullscreen;
 	bool running;
 	int w, h;
@@ -50,15 +84,17 @@ private:
 	bool leftMouseDown;
 	float tearRadius;
 	std::vector<bool> springActive;
-	bool isTexture;
 	glm::mat4 projectionMatrix;
+	bool isCameraActive;
 
 private:
 	void initUBO();
 	void initParticle();
 	void initSprings();
 	void initClothMesh();
+	void initFlagMesh();
 	void processEvent();
+	void applyPinning();
 	void handleMouseActivity();
 	void handleMouseTearing();
 	void tearSpringsAroundPoint(glm::vec3 worldPos, float radius);
@@ -70,6 +106,8 @@ private:
 	unsigned int loadTexture(char const* path);
 	void reset();
 	void clean();
+	std::vector<glm::vec3> computeNormals();
+	std::vector<PoleVertex> generateCylinder(float radius, float height, int slices);
 };
 
 

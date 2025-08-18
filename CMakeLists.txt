@@ -1,4 +1,4 @@
-﻿cmake_minimum_required (VERSION 3.10)
+﻿cmake_minimum_required (VERSION 3.21)
 
 # Enable Hot Reload for MSVC compilers if supported.
 if (POLICY CMP0141)
@@ -40,12 +40,10 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets)
 
 # adds exe and other necessary files to install dir
-install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${PROJECT_NAME})
+install(TARGETS ${PROJECT_NAME} RUNTIME_DEPENDENCY_SET deps RUNTIME DESTINATION ${PROJECT_NAME})
 install(DIRECTORY $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets DESTINATION ${PROJECT_NAME})
+install(RUNTIME_DEPENDENCY_SET deps DESTINATION ${PROJECT_NAME} PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-" POST_EXCLUDE_REGEXES ".*system32/.*")
 
-if(WIN32)
-    install(IMPORTED_RUNTIME_ARTIFACTS SDL3::SDL3-shared RUNTIME DESTINATION ${PROJECT_NAME})
-endif()
 
 
 
