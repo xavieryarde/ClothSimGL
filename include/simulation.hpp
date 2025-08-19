@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <vector>
 #include <cmath>
+#include <array>
 #include "particle.hpp"
 #include "springs.hpp"
 #include "shaders.hpp"
@@ -78,16 +79,21 @@ private:
 	Shader clothShader;
 	Shader flagShader;
 	Shader poleShader;
+	Shader skyboxShader;
 	GLuint particleVAO, particleVBO;
 	GLuint springVAO, springVBO;
 	GLuint poleVAO, poleVBO;
 	GLuint cubeVAO, cubeVBO;
+	GLuint skyboxVAO, skyboxVBO;
 	GLuint sphereVAO, sphereVBO;
 	GLuint uboMatrices;
 	GLuint clothVAO, clothVBO, clothTexVBO, clothNormVBO, clothEBO;
 	GLuint flagVAO, flagVBO, flagTexVBO, flagNormVBO, flagEBO;
 	unsigned int clothTexture;
 	unsigned int flagTexture;
+	unsigned int tearCubeMapTexture;
+	unsigned int collisionCubeMapTexture;
+	unsigned int flagCubeMapTexture;
 	bool fullscreen;
 	bool running;
 	int w, h;
@@ -95,13 +101,16 @@ private:
 	SDL_GLContext context;
 	const char* basePath;
 	float deltaTime;
-	float lastFrame;
+	Uint64 lastFrameTime;
 	glm::vec2 mousePos;
 	bool leftMouseDown;
 	float tearRadius;
 	std::vector<bool> springActive;
 	glm::mat4 projectionMatrix;
 	bool isCameraActive;
+	std::array<std::string, 6> tearFaces;
+	std::array<std::string, 6> collisionFaces;
+	std::array<std::string, 6> flagFaces;
 
 private:
 	void initUBO();
@@ -109,6 +118,7 @@ private:
 	void initSprings();
 	void initClothMesh();
 	void initFlagMesh();
+	void initSkybox();
 	void initCollisionObjects();
 	void processEvent();
 	void applyPinning();
@@ -125,6 +135,7 @@ private:
 	void render();
 	void framebuffer_size_callback(int width, int height);
 	unsigned int loadTexture(char const* path);
+	unsigned int loadCubemap(std::array<std::string, 6> faces);
 	void reset();
 	void clean();
 	std::vector<glm::vec3> computeNormals(const std::vector<unsigned int>& indices);

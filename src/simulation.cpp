@@ -55,13 +55,18 @@ Simulation::Simulation()
     , cubeVBO(0)
     , sphereVAO(0)
     , sphereVBO(0)
+    , skyboxVAO(0)
+    , skyboxVBO(0)
     , uboMatrices(0)
+    , tearCubeMapTexture(0)
+    , flagCubeMapTexture(0)
+    , collisionCubeMapTexture(0)
     , window(nullptr)
     , context(nullptr)
     , basePath(nullptr)
     , mousePos(glm::vec2(0.0f))
     , deltaTime(0.0f)
-    , lastFrame(0.0f)
+    , lastFrameTime(0)
     , tearRadius(0.1f)
     , leftMouseDown(false)
     , currentMode(SIMMODE::TEAR)
@@ -151,7 +156,7 @@ Simulation::Simulation()
         }
     }
 
-    // Generate indices for cloth mesh
+    // Generate indices for cloth and flag mesh
     for (int y = 0; y < rows - 1; ++y) {
         for (int x = 0; x < cols - 1; ++x) {
             int topLeft = y * cols + x;
@@ -166,16 +171,6 @@ Simulation::Simulation()
             clothIndices.emplace_back(topRight);
             clothIndices.emplace_back(bottomLeft);
             clothIndices.emplace_back(bottomRight);
-        }
-    }
-
-    // Generate indices for flag mesh
-    for (int y = 0; y < rows - 1; ++y) {
-        for (int x = 0; x < cols - 1; ++x) {
-            int topLeft = y * cols + x;
-            int topRight = y * cols + (x + 1);
-            int bottomLeft = (y + 1) * cols + x;
-            int bottomRight = (y + 1) * cols + (x + 1);
 
             flagIndices.emplace_back(topLeft);
             flagIndices.emplace_back(bottomLeft);
@@ -277,10 +272,13 @@ void Simulation::applyPinning() {
 }
 
 void Simulation::run() {
+
+    lastFrameTime = SDL_GetPerformanceCounter();
+
     while (running) {
-        float currentFrame = SDL_GetTicks() / 1000.0f;
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
+        Uint64 currentFrameTime = SDL_GetPerformanceCounter();
+        deltaTime = (float)(currentFrameTime - lastFrameTime) / SDL_GetPerformanceFrequency();
+        lastFrameTime = currentFrameTime;
 
         deltaTime = std::min(deltaTime, 1.0f / 60.0f);
 
@@ -298,12 +296,9 @@ void Simulation::run() {
         // Apply forces
         for (auto& p : particles) {
             
-            if (currentMode == SIMMODE::COLLISION) {
-                p.addForce(glm::vec3(0.0f, -7.0f * p.mass, 0.0f));
-            }
-            else {
-                p.addForce(glm::vec3(0.0f, -9.81f * p.mass, 0.0f));
-            }
+            // Gravity
+            p.addForce(glm::vec3(0.0f, -9.81f * p.mass, 0.0f));
+            
 
             // Add air resistance 
             if (currentMode == SIMMODE::COLLISION) {
@@ -515,7 +510,7 @@ void Simulation::reset() {
     }
     case SIMMODE::COLLISION:
     {
-        camera = { glm::vec3((cols - 1) * spacing * 0.5f, 5.0f, 7.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, -45.0f };
+        camera = { glm::vec3((cols - 1) * spacing * 0.5f, 5.0f, 10.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, -35.0f };
         
         break;
     }
@@ -607,15 +602,55 @@ bool Simulation::init() {
         (fs::path(basePath) / "assets" / "shaders" / "poleShader.frag").string().c_str()
     };
 
+    skyboxShader = {
+        (fs::path(basePath) / "assets" / "shaders" / "skyboxShader.vert").string().c_str(),
+        (fs::path(basePath) / "assets" / "shaders" / "skyboxShader.frag").string().c_str()
+    };
+
+    tearFaces = {
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_tear" / "px.jpg").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_tear" / "nx.jpg").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_tear" / "py.jpg").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_tear" / "ny.jpg").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_tear" / "pz.jpg").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_tear" / "nz.jpg").string()
+    };
+
+    collisionFaces = {
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_collision" / "px.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_collision" / "nx.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_collision" / "py.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_collision" / "ny.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_collision" / "pz.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_collision" / "nz.png").string()
+    };
+
+    flagFaces = {
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_flag" / "px.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_flag" / "nx.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_flag" / "py.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_flag" / "ny.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_flag" / "pz.png").string(),
+        (fs::path(basePath) / "assets" / "skyboxes" / "sky_flag" / "nz.png").string()
+    };
+
     clothTexture = loadTexture((fs::path(basePath) / "assets" / "textures" / "cloth.jpg").string().c_str());
 
     flagTexture = loadTexture((fs::path(basePath) / "assets" / "textures" / "flag.png").string().c_str());
+
+    tearCubeMapTexture = loadCubemap(tearFaces);
+    
+    collisionCubeMapTexture = loadCubemap(collisionFaces);
+
+    flagCubeMapTexture = loadCubemap(flagFaces);
+
 
     initParticle();
     initSprings();
     initClothMesh();
     initFlagMesh();
     initCollisionObjects();
+    initSkybox();
     initUBO();
 
     clothShader.use();
@@ -624,8 +659,69 @@ bool Simulation::init() {
     flagShader.use();
     flagShader.setInt("material.diffuse", 0);
 
+    skyboxShader.use();
+    skyboxShader.setInt("skybox", 0);
+
     running = true;
     return true;
+}
+
+void Simulation::initSkybox() {
+
+    float skyboxVertices[] = {
+        // positions          
+        -1.0f,  1.0f, -1.0f,
+        -1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f, -1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+
+        -1.0f, -1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f,
+        -1.0f, -1.0f,  1.0f,
+
+        -1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f, -1.0f,
+         1.0f,  1.0f,  1.0f,
+         1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f,  1.0f,
+        -1.0f,  1.0f, -1.0f,
+
+        -1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f, -1.0f,
+         1.0f, -1.0f, -1.0f,
+        -1.0f, -1.0f,  1.0f,
+         1.0f, -1.0f,  1.0f
+    };
+
+    glGenVertexArrays(1, &skyboxVAO);
+    glGenBuffers(1, &skyboxVBO);
+    glBindVertexArray(skyboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, skyboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(skyboxVertices), &skyboxVertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+
+    glBindVertexArray(0);
 }
 
 void Simulation::initCollisionObjects() {
@@ -1234,7 +1330,20 @@ void Simulation::render() {
             particleShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
             glBindVertexArray(springVAO);
             glDrawArrays(GL_LINES, 0, activeSpringPositions.size());
+            glBindVertexArray(0);
         }
+
+        // draw skybox
+        skyboxShader.use();
+        glm::mat4 skyboxView = glm::mat4(glm::mat3(view)); 
+        glBindBuffer(GL_UNIFORM_BUFFER, uboMatrices);
+        glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(skyboxView));
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        glBindVertexArray(skyboxVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, tearCubeMapTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
         break;
     }
 
@@ -1285,23 +1394,68 @@ void Simulation::render() {
             glDrawArrays(GL_TRIANGLES, 0, sphere.size());
         }
         glBindVertexArray(0);
+
+        // draw skybox
+        skyboxShader.use();
+        glm::mat4 skyboxView = glm::mat4(glm::mat3(view));
+        glBindBuffer(GL_UNIFORM_BUFFER, uboMatrices);
+        glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(skyboxView));
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        glBindVertexArray(skyboxVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, collisionCubeMapTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
         break;
     }
 
     case SIMMODE::FLAG:
     {
-        
+        // draw skybox
+        skyboxShader.use();
+        glm::mat4 skyboxView = glm::mat4(glm::mat3(view));
+        glBindBuffer(GL_UNIFORM_BUFFER, uboMatrices);
+        glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(skyboxView));
+
+        glBindVertexArray(skyboxVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, flagCubeMapTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glBindVertexArray(0);
+
+        // restore the original view matrix for the rest of the scene
+        glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(view));
+        glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+
+        // draw pole
+        poleShader.use();
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, -20.0f, 0.0f));
+        poleShader.setMat4("model", model);
+
+        poleShader.setVec3("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
+        poleShader.setVec3("viewPos", camera.Position);
+        poleShader.setVec3("lightColor", glm::vec3(1.0f));
+        poleShader.setVec3("objectColor", glm::vec3(0.8f, 0.8f, 0.8f));
+
+        glBindVertexArray(poleVAO);
+        glDrawArrays(GL_TRIANGLES, 0, cylinder.size());
+        glBindVertexArray(0);
+
+
+        // draw flag
         flagShader.use();
         flagShader.setVec3("light.direction", -0.3f, -1.0f, -0.2f);
         flagShader.setVec3("viewPos", camera.Position);
 
         // light properties
         flagShader.setVec3("light.ambient", 0.25f, 0.25f, 0.25f);
-        flagShader.setVec3("light.diffuse", 0.8f, 0.8f, 0.7f); 
+        flagShader.setVec3("light.diffuse", 0.8f, 0.8f, 0.7f);
         flagShader.setVec3("light.specular", 1.0f, 1.0f, 0.9f);
 
         // material properties
-        flagShader.setVec3("material.specular", 0.25f, 0.25f, 0.25f); 
+        flagShader.setVec3("material.specular", 0.25f, 0.25f, 0.25f);
         flagShader.setFloat("material.shininess", 32.0f);
 
         glm::mat4 flagModel = glm::mat4(1.0f);
@@ -1320,32 +1474,20 @@ void Simulation::render() {
         glBindBuffer(GL_ARRAY_BUFFER, flagNormVBO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, normals.size() * sizeof(glm::vec3), normals.data());
 
+     
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+
         glBindVertexArray(flagVAO);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, flagTexture);
 
-        glDepthMask(GL_FALSE);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDrawElements(GL_TRIANGLES, flagIndices.size(), GL_UNSIGNED_INT, 0);
+
+      
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
-
-        glBindVertexArray(0);
-
-        glm::mat4 model = glm::mat4(1.0f);
-        model = glm::translate(model, glm::vec3(0.0f, -20.0f, 0.0f));
-
-        poleShader.use();
-        poleShader.setMat4("model", model);
-
-        poleShader.setVec3("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
-        poleShader.setVec3("viewPos", camera.Position);
-        poleShader.setVec3("lightColor", glm::vec3(1.0f));
-        poleShader.setVec3("objectColor", glm::vec3(0.8f, 0.8f, 0.8f));
-
-        glBindVertexArray(poleVAO);
-        glDrawArrays(GL_TRIANGLES, 0, cylinder.size());
         glBindVertexArray(0);
 
         break;
@@ -1378,10 +1520,16 @@ void Simulation::clean() {
     glDeleteBuffers(1, &cubeVBO);
     glDeleteVertexArrays(1, &sphereVAO);
     glDeleteBuffers(1, &sphereVBO);
+    glDeleteVertexArrays(1, &skyboxVAO);
+    glDeleteBuffers(1, &skyboxVBO);
+    glDeleteTextures(1, &flagCubeMapTexture);
+    glDeleteTextures(1, &tearCubeMapTexture);
+    glDeleteTextures(1, &collisionCubeMapTexture);
     particleShader.clean();
     clothShader.clean();
     poleShader.clean();
     flagShader.clean();
+    skyboxShader.clean();
     SDL_GL_DestroyContext(context);
     SDL_DestroyWindow(window);
     SDL_Quit();
@@ -1432,6 +1580,48 @@ unsigned int Simulation::loadTexture(char const* path)
     {
         SDL_Log("Failed to load texture: %s\n", SDL_GetError());
     }
+
+    return textureID;
+}
+
+unsigned int Simulation::loadCubemap(std::array<std::string, 6> faces)
+{
+    unsigned int textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
+
+    for (unsigned int i = 0; i < faces.size(); i++)
+    {
+        SDL_Surface* surface = IMG_Load(faces[i].c_str());
+
+
+        if (surface)
+        {
+            int nrComponents = SDL_BYTESPERPIXEL(surface->format);
+            
+            GLenum format;
+            if (nrComponents == 1)
+                format = GL_RED;
+            else if (nrComponents == 3)
+                format = GL_RGB;
+            else if (nrComponents == 4)
+                format = GL_RGBA;
+
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format, surface->w, surface->h, 0, format, GL_UNSIGNED_BYTE, surface->pixels);
+
+            SDL_DestroySurface(surface);
+        }
+        else
+        {
+            SDL_Log("Cubemap texture failed to load at path: %s\n", SDL_GetError());
+
+        }
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
 
     return textureID;
 }
