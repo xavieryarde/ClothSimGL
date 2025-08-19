@@ -6,6 +6,9 @@
 #include <vector>
 #include <cmath>
 #include <array>
+#include <imgui.h>
+#include <imgui_impl_sdl3.h>
+#include <imgui_impl_opengl3.h>
 #include "particle.hpp"
 #include "springs.hpp"
 #include "shaders.hpp"
@@ -18,6 +21,14 @@ constexpr int WinHeight = 600;
 constexpr int rows = 30;
 constexpr int cols = 40;
 constexpr float spacing = 0.18f;
+
+constexpr float k_structural = 200.0f;
+constexpr float k_shear = 120.0f;
+constexpr float k_bend = 50.0f;
+
+constexpr float structural_damping = 85.0f;
+constexpr float shear_damping = 75.0f;
+constexpr float bend_damping = 65.0f;
 
 namespace fs = std::filesystem;
 
@@ -142,5 +153,6 @@ private:
 	std::vector<PoleVertex> generateCylinder(float radius, float height, int slices);
 	std::vector<PoleVertex> generateCube(float size);
 	std::vector<PoleVertex> generateSphere(float radius, int rings, int sectors);
+	void renderGUI();
 
 };

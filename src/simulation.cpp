@@ -1,38 +1,7 @@
 #include "simulation.hpp"
 
-const char* ToString(SIMMODE mode) {
-    switch (mode) {
-    case SIMMODE::TEAR:       return "Tear";
-    case SIMMODE::COLLISION:  return "Collision";
-    case SIMMODE::FLAG:       return "Flag";
-    case SIMMODE::LAST:       return "Invalid";
-    }
-    return "Unknown";
-}
-
-const char* ToString(PINNINGMODE mode) {
-    switch (mode) {
-    case PINNINGMODE::TOP_ROW: return "Top Row";
-    case PINNINGMODE::ALL:     return "All";
-    case PINNINGMODE::CORNERS: return "Corners";
-    case PINNINGMODE::FLAG:    return "Flag";
-    case PINNINGMODE::NONE:    return "None";
-    case PINNINGMODE::LAST:    return "Invalid";
-    }
-    return "Unknown";
-}
-
-const char* ToString(COLLISIONSHAPE shape) {
-    switch (shape) {
-    case COLLISIONSHAPE::CUBE:   return "Cube";
-    case COLLISIONSHAPE::SPHERE: return "Sphere";
-    case COLLISIONSHAPE::LAST:   return "Invalid";
-    }
-    return "Unknown";
-}
-
 Simulation::Simulation()
-    : fullscreen(false)
+    : fullscreen(true)
     , running(false)
     , w(0)
     , h(0)
@@ -97,13 +66,7 @@ Simulation::Simulation()
         }
     }
 
-    float k_structural = 200.0f;
-    float k_shear = 120.0f;
-    float k_bend = 50.0f;
-
-    float structural_damping = 85.0f;
-    float shear_damping = 75.0f;
-    float bend_damping = 65.0f;
+    
 
     // Create springs
     for (int y = 0; y < rows; ++y) {
@@ -185,54 +148,6 @@ Simulation::Simulation()
     applyPinning();
 
     springActive.resize(springs.size(), true);
-
-   /* SDL_Log(
-        "Cloth Sim:\n"
-        "- Sim Mode: %s\n"
-        "- Pin Mode: %s\n"
-        "- Collision Object: %s\n"
-        "- Camera: %s\n\n",
-        ToString(currentMode),
-        ToString(currentPinning),
-        ToString(currentCollisionShape),
-        isCameraActive ? "Free Look" : "Fixed"
-    );*/
-
-    SDL_Log(
-        "Physics:\n"
-        "- Particles: %d\n"
-        "- Springs: %d\n"
-        "- Structural Springs: %.2f\n"
-        "- Shear Springs: %.2f\n"
-        "- Bend Springs: %.2f\n"
-        "- Structural Damping: %.2f\n"
-        "- Shear Damping: %.2f\n"
-        "- Bend Damping: %.2f\n\n",
-        static_cast<int>(particles.size()),
-        static_cast<int>(springs.size()),
-        k_structural,
-        k_shear,
-        k_bend,
-        structural_damping,
-        shear_damping,
-        bend_damping
-    );
-
-    SDL_Log(
-        "Controls:\n"
-        "- E: Switch Sim Mode\n"
-        "- P: Switch Pin Mode\n"
-        "- C: Switch Collision Object\n"
-        "- SPACE: Toggle Camera\n"
-        "- W: Move Forward When Camera is Active\n"
-        "- D: Move Right When Camera is Active\n"
-        "- S: Move Backward When Camera is Active\n"
-        "- A: Move Left When Camera is Active\n"
-        "- DRAG MOUSE: Drag Mouse To Look Around When Camera is Active\n"
-        "- MOUSE LEFT CLICK: Tear Cloth When in Tear Sim Mode\n"
-        "- R: Reset Sim\n"
-        "- ESC: Close Sim\n"
-    );
 
 }
 
@@ -432,7 +347,7 @@ void Simulation::resolveCollision(Particle& particle, const glm::vec3& normal, f
     const float staticFriction = 0.9f;      // Washcloth grips surfaces
     const float kineticFriction = 0.7f;     // Lower when already moving
     const float dampening = 0.85f;          // Absorb energy like fabric
-    const float restitution = 0.02f;        // Minimal bounce - fabric doesn't bounce
+    const float restitution = 0.02f;        // Minimal bounce
     const float gripThreshold = 0.5f;       // Speed below which static friction kicks in
 
     // Handle normal component (into/out of surface)
@@ -528,7 +443,7 @@ void Simulation::reset() {
 bool Simulation::init() {
     SDL_SetAppMetadata("ClothSimGL", "1.0.0", "com.example.clothsimgl");
 
-    SDL_WindowFlags WindowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
+    SDL_WindowFlags WindowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN;
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL Initialization failed: %s", SDL_GetError());
@@ -566,6 +481,16 @@ bool Simulation::init() {
         SDL_Log("Failed to initialize GLAD\n");
         return false;
     }
+
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplSDL3_InitForOpenGL(window, context);
+    ImGui_ImplOpenGL3_Init("#version 460 core");
 
     glEnable(GL_PROGRAM_POINT_SIZE);
     glEnable(GL_MULTISAMPLE);
@@ -1021,6 +946,8 @@ void Simulation::processEvent() {
 
     while (SDL_PollEvent(&event))
     {
+        ImGui_ImplSDL3_ProcessEvent(&event);
+
         if (event.type == SDL_EVENT_KEY_DOWN)
         {
 
@@ -1031,14 +958,7 @@ void Simulation::processEvent() {
                 break;
             case SDLK_F:
                 fullscreen = !fullscreen;
-                if (fullscreen)
-                {
-                    SDL_SetWindowFullscreen(window, true);
-                }
-                else
-                {
-                    SDL_SetWindowFullscreen(window, false);
-                }
+                SDL_SetWindowFullscreen(window, fullscreen);
                 break;
             case SDLK_R:
                 reset();
@@ -1494,10 +1414,122 @@ void Simulation::render() {
     }
     }
 
+    renderGUI();
+
     SDL_GL_SwapWindow(window);
 }
 
+void Simulation::renderGUI() {
+
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplSDL3_NewFrame();
+    ImGui::NewFrame();
+
+
+    ImGui::Begin("Cloth Simulation Controls");
+
+    // Simulation Mode
+    const char* modes[] = { "Tear", "Collision", "Flag" };
+    int currentModeInt = static_cast<int>(currentMode);
+    if (ImGui::Combo("Simulation Mode", &currentModeInt, modes, 3)) {
+        currentMode = static_cast<SIMMODE>(currentModeInt);
+        reset();
+        if (currentMode == SIMMODE::TEAR) {
+            currentPinning = PINNINGMODE::TOP_ROW;
+            applyPinning();
+        }
+    }
+
+    // Pinning Mode
+    const char* pinModes[] = { "Top Row", "All", "Corners", "Flag", "None" };
+    int currentPinInt = static_cast<int>(currentPinning);
+
+    switch (currentMode) {
+    case SIMMODE::TEAR:
+    {
+        if (ImGui::Combo("Pinning Mode", &currentPinInt, pinModes, 5)) {
+            currentPinning = static_cast<PINNINGMODE>(currentPinInt);
+            reset();
+            applyPinning();
+        }
+        break;
+    }
+    case SIMMODE::COLLISION:
+    {
+        if (ImGui::Button("Drop Cloth")) {
+            currentPinning = PINNINGMODE::NONE;
+            applyPinning();
+        }
+        break;
+    }
+    default:
+        break;
+    }
+
+    // Collision Shape
+    if (currentMode == SIMMODE::COLLISION) {
+        const char* shapes[] = { "Cube", "Sphere" };
+        int shapeInt = static_cast<int>(currentCollisionShape);
+        if (ImGui::Combo("Collision Shape", &shapeInt, shapes, 2)) {
+            currentCollisionShape = static_cast<COLLISIONSHAPE>(shapeInt);
+        }
+    }
+
+    // Tear radius 
+    if (currentMode == SIMMODE::TEAR) {
+        ImGui::SliderFloat("Tear Radius", &tearRadius, 0.05f, 0.5f);
+    }
+
+    // Reset button
+    if (ImGui::Button("Reset Simulation")) {
+        reset();
+    }
+
+    // Set Fullscreen
+    if (ImGui::Checkbox("Fullscreen", &fullscreen)) {
+        SDL_SetWindowFullscreen(window, fullscreen);
+    }
+
+
+    // Physics Info
+    ImGui::Separator();
+    ImGui::Text("Physics:");
+    ImGui::Text("- Particles: %d", static_cast<int>(particles.size()));
+    ImGui::Text("- Springs: %d", static_cast<int>(springs.size()));
+    ImGui::Text("- Structural Springs: %.2f", k_structural);
+    ImGui::Text("- Shear Springs: %.2f", k_shear);
+    ImGui::Text("- Bend Springs: %.2f", k_bend);
+    ImGui::Text("- Structural Damping: %.2f", structural_damping);
+    ImGui::Text("- Shear Damping: %.2f", shear_damping);
+    ImGui::Text("- Bend Damping: %.2f", bend_damping);
+    ImGui::Text("- FPS: %.1f", ImGui::GetIO().Framerate);
+
+    // Controls Info
+    ImGui::Separator();
+    ImGui::Text("Controls:");
+    ImGui::TextWrapped("- E: Switch Sim Mode");
+    ImGui::TextWrapped("- P: Switch Pin Mode");
+    ImGui::TextWrapped("- C: Switch Collision Object");
+    ImGui::TextWrapped("- SPACE: Toggle Camera (%s)", isCameraActive ? "Free Look" : "Fixed");
+    ImGui::TextWrapped("- W/A/S/D: Move Camera");
+    ImGui::TextWrapped("- Drag Mouse: Look Around (when camera active)");
+    ImGui::TextWrapped("- Left Click: Tear Cloth (in Tear mode)");
+    ImGui::TextWrapped("- R: Reset Simulation");
+    ImGui::TextWrapped("- ESC: Exit");
+
+    ImGui::End();
+
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+}
+
+
+
 void Simulation::clean() {
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplSDL3_Shutdown();
+    ImGui::DestroyContext();
+
     glDeleteVertexArrays(1, &particleVAO);
     glDeleteBuffers(1, &particleVBO);
     glDeleteVertexArrays(1, &springVAO);
