@@ -1425,7 +1425,7 @@ void Simulation::renderGUI() {
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
 
-
+    ImGui::SetNextWindowSize(ImVec2(400, 550), ImGuiCond_FirstUseEver);
     ImGui::Begin("Cloth Simulation Controls");
 
     // Simulation Mode
