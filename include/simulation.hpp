@@ -29,9 +29,16 @@ enum class SIMMODE {
 
 enum class PINNINGMODE {
 	TOP_ROW,
+	ALL,
 	CORNERS,
 	FLAG,
 	NONE,
+	LAST
+};
+
+enum class COLLISIONSHAPE {
+	CUBE,
+	SPHERE,
 	LAST
 };
 
@@ -40,8 +47,11 @@ struct PoleVertex {
 	glm::vec3 normal;
 };
 
-
-
+struct CollisionObject {
+	glm::vec3 position;
+	glm::vec3 size; // For cube: width, height, depth. For sphere: radius in x component
+	COLLISIONSHAPE shape;
+};
 
 class Simulation {
 public:
@@ -52,9 +62,13 @@ public:
 private:
 	SIMMODE currentMode;
 	PINNINGMODE currentPinning;
+	COLLISIONSHAPE currentCollisionShape;
+	CollisionObject collisionObject;
 	std::vector<Particle> particles;
-	std::vector<Spring> springs; 
+	std::vector<Spring> springs;
 	std::vector<PoleVertex> cylinder;
+	std::vector<PoleVertex> cube;
+	std::vector<PoleVertex> sphere;
 	std::vector<unsigned int> clothIndices;
 	std::vector<glm::vec2> clothTexCoords;
 	std::vector<unsigned int> flagIndices;
@@ -67,8 +81,10 @@ private:
 	GLuint particleVAO, particleVBO;
 	GLuint springVAO, springVBO;
 	GLuint poleVAO, poleVBO;
+	GLuint cubeVAO, cubeVBO;
+	GLuint sphereVAO, sphereVBO;
 	GLuint uboMatrices;
-	GLuint clothVAO, clothVBO, clothTexVBO, clothEBO;
+	GLuint clothVAO, clothVBO, clothTexVBO, clothNormVBO, clothEBO;
 	GLuint flagVAO, flagVBO, flagTexVBO, flagNormVBO, flagEBO;
 	unsigned int clothTexture;
 	unsigned int flagTexture;
@@ -93,11 +109,16 @@ private:
 	void initSprings();
 	void initClothMesh();
 	void initFlagMesh();
+	void initCollisionObjects();
 	void processEvent();
 	void applyPinning();
 	void handleMouseActivity();
 	void handleMouseTearing();
 	void tearSpringsAroundPoint(glm::vec3 worldPos, float radius);
+	void handleCollisions();
+	bool checkSphereCollision(const glm::vec3& particlePos, float& penetrationDepth, glm::vec3& normal);
+	bool checkCubeCollision(const glm::vec3& particlePos, float& penetrationDepth, glm::vec3& normal);
+	void resolveCollision(Particle& particle, const glm::vec3& normal, float penetrationDepth);
 	glm::vec3 screenToWorld(glm::vec2 screenPos, float depth = 0.0f);
 	glm::vec2 worldToScreen(const glm::vec3& worldPos);
 	Particle* findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 rayDir);
@@ -106,13 +127,9 @@ private:
 	unsigned int loadTexture(char const* path);
 	void reset();
 	void clean();
-	std::vector<glm::vec3> computeNormals();
+	std::vector<glm::vec3> computeNormals(const std::vector<unsigned int>& indices);
 	std::vector<PoleVertex> generateCylinder(float radius, float height, int slices);
+	std::vector<PoleVertex> generateCube(float size);
+	std::vector<PoleVertex> generateSphere(float radius, int rings, int sectors);
+
 };
-
-
-
-
-
-
-

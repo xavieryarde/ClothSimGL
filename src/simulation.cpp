@@ -1,5 +1,36 @@
 #include "simulation.hpp"
 
+const char* ToString(SIMMODE mode) {
+    switch (mode) {
+    case SIMMODE::TEAR:       return "Tear";
+    case SIMMODE::COLLISION:  return "Collision";
+    case SIMMODE::FLAG:       return "Flag";
+    case SIMMODE::LAST:       return "Invalid";
+    }
+    return "Unknown";
+}
+
+const char* ToString(PINNINGMODE mode) {
+    switch (mode) {
+    case PINNINGMODE::TOP_ROW: return "Top Row";
+    case PINNINGMODE::ALL:     return "All";
+    case PINNINGMODE::CORNERS: return "Corners";
+    case PINNINGMODE::FLAG:    return "Flag";
+    case PINNINGMODE::NONE:    return "None";
+    case PINNINGMODE::LAST:    return "Invalid";
+    }
+    return "Unknown";
+}
+
+const char* ToString(COLLISIONSHAPE shape) {
+    switch (shape) {
+    case COLLISIONSHAPE::CUBE:   return "Cube";
+    case COLLISIONSHAPE::SPHERE: return "Sphere";
+    case COLLISIONSHAPE::LAST:   return "Invalid";
+    }
+    return "Unknown";
+}
+
 Simulation::Simulation()
     : fullscreen(false)
     , running(false)
@@ -20,6 +51,10 @@ Simulation::Simulation()
     , flagTexture(0)
     , flagNormVBO(0)
     , clothEBO(0)
+    , cubeVAO(0)
+    , cubeVBO(0)
+    , sphereVAO(0)
+    , sphereVBO(0)
     , uboMatrices(0)
     , window(nullptr)
     , context(nullptr)
@@ -31,25 +66,39 @@ Simulation::Simulation()
     , leftMouseDown(false)
     , currentMode(SIMMODE::TEAR)
     , currentPinning(PINNINGMODE::TOP_ROW)
+    , currentCollisionShape(COLLISIONSHAPE::SPHERE)
     , projectionMatrix(glm::mat4(0.0f))
     , isCameraActive(false)
-    , camera(glm::vec3((cols - 1)* spacing * 0.5f, -(rows - 1) * spacing * 0.5f, 10.0f))
+    , camera(glm::vec3((cols - 1) * spacing * 0.5f, -(rows - 1) * spacing * 0.5f, 10.0f))
 {
-    // Create particles
-    for (int y = 0; y < rows; ++y) {
-        for (int x = 0; x < cols; ++x) {
-            glm::vec3 pos = glm::vec3(x * spacing, -y * spacing, 0.0f);
-            particles.emplace_back(pos, 1.0f);
+ 
+    collisionObject.position = glm::vec3((cols - 1) * spacing * 0.5f, -5.0f, -2.0f);
+    collisionObject.size = glm::vec3(3.0f, 3.0f, 3.0f); // Sphere radius or cube size
+
+    if (currentMode == SIMMODE::COLLISION) {
+        for (int y = 0; y < rows; ++y) {
+            for (int x = 0; x < cols; ++x) {
+                glm::vec3 pos = glm::vec3(x * spacing, 0.0f, -y * spacing); // Horizontal layout
+                particles.emplace_back(pos, 1.0f);
+            }
+        }
+    }
+    else {
+        for (int y = 0; y < rows; ++y) {
+            for (int x = 0; x < cols; ++x) {
+                glm::vec3 pos = glm::vec3(x * spacing, -y * spacing, 0.0f); // Vertical layout
+                particles.emplace_back(pos, 1.0f);
+            }
         }
     }
 
     float k_structural = 200.0f;
-    float k_shear = 100.0f;
+    float k_shear = 120.0f;
     float k_bend = 50.0f;
 
-    float structural_damping = 10.0f;
-    float shear_damping = 8.0f;
-    float bend_damping = 5.0f;
+    float structural_damping = 85.0f;
+    float shear_damping = 75.0f;
+    float bend_damping = 65.0f;
 
     // Create springs
     for (int y = 0; y < rows; ++y) {
@@ -141,38 +190,91 @@ Simulation::Simulation()
     applyPinning();
 
     springActive.resize(springs.size(), true);
+
+   /* SDL_Log(
+        "Cloth Sim:\n"
+        "- Sim Mode: %s\n"
+        "- Pin Mode: %s\n"
+        "- Collision Object: %s\n"
+        "- Camera: %s\n\n",
+        ToString(currentMode),
+        ToString(currentPinning),
+        ToString(currentCollisionShape),
+        isCameraActive ? "Free Look" : "Fixed"
+    );*/
+
+    SDL_Log(
+        "Physics:\n"
+        "- Particles: %d\n"
+        "- Springs: %d\n"
+        "- Structural Springs: %.2f\n"
+        "- Shear Springs: %.2f\n"
+        "- Bend Springs: %.2f\n"
+        "- Structural Damping: %.2f\n"
+        "- Shear Damping: %.2f\n"
+        "- Bend Damping: %.2f\n\n",
+        static_cast<int>(particles.size()),
+        static_cast<int>(springs.size()),
+        k_structural,
+        k_shear,
+        k_bend,
+        structural_damping,
+        shear_damping,
+        bend_damping
+    );
+
+    SDL_Log(
+        "Controls:\n"
+        "- E: Switch Sim Mode\n"
+        "- P: Switch Pin Mode\n"
+        "- C: Switch Collision Object\n"
+        "- SPACE: Toggle Camera\n"
+        "- W: Move Forward When Camera is Active\n"
+        "- D: Move Right When Camera is Active\n"
+        "- S: Move Backward When Camera is Active\n"
+        "- A: Move Left When Camera is Active\n"
+        "- DRAG MOUSE: Drag Mouse To Look Around When Camera is Active\n"
+        "- MOUSE LEFT CLICK: Tear Cloth When in Tear Sim Mode\n"
+        "- R: Reset Sim\n"
+        "- ESC: Close Sim\n"
+    );
+
 }
 
-    void Simulation::applyPinning() {
-        
-        for (auto& p : particles) {
-            p.pinned = false;
-        }
+void Simulation::applyPinning() {
 
-        switch (currentPinning) {
-        case PINNINGMODE::TOP_ROW:
+    for (auto& p : particles) {
+        p.pinned = false;
+    }
+
+    switch (currentPinning) {
+    case PINNINGMODE::TOP_ROW:
             for (int x = 0; x < cols; ++x) {
                 particles[x].pinned = true;
             }
-            break;
+        
+        break;
+    case PINNINGMODE::ALL:
+        for (auto& p : particles)
+            p.pinned = true;
+        break;
+    case PINNINGMODE::CORNERS:
+        particles[0].pinned = true;
+        particles[cols - 1].pinned = true;
+        break;
 
-        case PINNINGMODE::CORNERS:
-            particles[0].pinned = true;
-            particles[cols - 1].pinned = true;
-            break;
-
-        case PINNINGMODE::FLAG:
-            for (int y = 0; y < rows; ++y) {
-                particles[y * cols + 0].pinned = true;
-            }
-            /*particles[0].pinned = true;
-            particles[(rows - 1) * cols].pinned = true;*/
-            break;
-
-        case PINNINGMODE::NONE:
-            break;
+    case PINNINGMODE::FLAG:
+        for (int y = 0; y < rows; ++y) {
+            particles[y * cols + 0].pinned = true;
         }
+        /*particles[0].pinned = true;
+        particles[(rows - 1) * cols].pinned = true;*/
+        break;
+
+    case PINNINGMODE::NONE:
+        break;
     }
+}
 
 void Simulation::run() {
     while (running) {
@@ -193,27 +295,25 @@ void Simulation::run() {
 
         handleMouseActivity();
 
-        for (size_t i = 0; i < springs.size(); ++i) {
-            if (springActive[i]) {
-                springs[i].applyForces();
-            }
-        } 
-
+        // Apply forces
         for (auto& p : particles) {
-
-            // Gravity
+            
             if (currentMode == SIMMODE::COLLISION) {
-                // Gravity in -Z direction (down in rotated cloth space)
-                p.addForce(glm::vec3(0.0f, 0.0f, -9.81f * p.mass));
+                p.addForce(glm::vec3(0.0f, -7.0f * p.mass, 0.0f));
             }
             else {
-                // Normal gravity in -Y direction
                 p.addForce(glm::vec3(0.0f, -9.81f * p.mass, 0.0f));
             }
 
-            // Wind
+            // Add air resistance 
+            if (currentMode == SIMMODE::COLLISION) {
+                glm::vec3 vel = p.position - p.prevPosition;
+                glm::vec3 airResistance = -vel * 0.02f; // Light air resistance
+                p.addForce(airResistance);
+            }
+
+            // Wind for flag mode
             if (currentMode == SIMMODE::FLAG) {
-                
                 const glm::vec3 windDir = glm::normalize(glm::vec3(1.0f, 0.0f, 0.0f));
                 float t = SDL_GetTicks() * 0.001f;
                 float gust = 8.0f + 5.0f * std::sin(t * 1.5f) + 3.0f * std::sin(t * 0.5f + 1.0f);
@@ -223,8 +323,12 @@ void Simulation::run() {
 
                 glm::vec3 v = (p.position - p.prevPosition) / glm::max(deltaTime, 1e-4f);
                 p.addForce(-0.1f * v);
+            }
+        }
 
-
+        for (size_t i = 0; i < springs.size(); ++i) {
+            if (springActive[i]) {
+                springs[i].applyForces();
             }
         }
 
@@ -232,24 +336,159 @@ void Simulation::run() {
             p.updateVerlet(deltaTime);
         }
 
-        for (int i = 0; i < 5; ++i) {
+        
+        for (int i = 0; i < 5; ++i) { 
+           
             for (size_t j = 0; j < springs.size(); ++j) {
                 if (springActive[j]) {
                     springs[j].satisfyConstraint();
                 }
             }
-        }     
+
+            if (currentMode == SIMMODE::COLLISION) {
+
+                handleCollisions();
+            }
+        }
 
         render();
     }
     clean();
 }
 
+void Simulation::handleCollisions() {
+    for (auto& p : particles) {
+        if (p.pinned) continue;
+
+        float penetrationDepth;
+        glm::vec3 normal;
+        bool collision = false;
+
+        if (currentCollisionShape == COLLISIONSHAPE::SPHERE) {
+            collision = checkSphereCollision(p.position, penetrationDepth, normal);
+        }
+        else if (currentCollisionShape == COLLISIONSHAPE::CUBE) {
+            collision = checkCubeCollision(p.position, penetrationDepth, normal);
+        }
+
+        if (collision) {
+            resolveCollision(p, normal, penetrationDepth);
+        }
+    }
+}
+
+bool Simulation::checkSphereCollision(const glm::vec3& particlePos, float& penetrationDepth, glm::vec3& normal) {
+    glm::vec3 diff = particlePos - collisionObject.position;
+    float distance = glm::length(diff);
+    float clothThickness = 0.1f;
+    float radius = collisionObject.size.x + clothThickness;
+
+    if (distance < radius + 0.1f) { // Add small buffer
+        penetrationDepth = (radius + 0.05f) - distance;
+        normal = (distance > 0.0001f) ? glm::normalize(diff) : glm::vec3(0.0f, 1.0f, 0.0f);
+        return true;
+    }
+    return false;
+}
+
+bool Simulation::checkCubeCollision(const glm::vec3& particlePos, float& penetrationDepth, glm::vec3& normal) {
+    float clothThickness = 0.12f;
+    glm::vec3 halfSize = collisionObject.size * 0.5f + glm::vec3(clothThickness + 0.02f); // Add buffer
+    glm::vec3 diff = particlePos - collisionObject.position;
+
+    // Check if particle is inside the expanded cube
+    if (std::abs(diff.x) < halfSize.x && std::abs(diff.y) < halfSize.y && std::abs(diff.z) < halfSize.z) {
+        // Find the closest face
+        glm::vec3 distances = halfSize - glm::abs(diff);
+        float minDist = std::min({ distances.x, distances.y, distances.z });
+
+        if (minDist == distances.x) {
+            normal = glm::vec3(diff.x > 0 ? 1.0f : -1.0f, 0.0f, 0.0f);
+            penetrationDepth = distances.x;
+        }
+        else if (minDist == distances.y) {
+            normal = glm::vec3(0.0f, diff.y > 0 ? 1.0f : -1.0f, 0.0f);
+            penetrationDepth = distances.y;
+        }
+        else {
+            normal = glm::vec3(0.0f, 0.0f, diff.z > 0 ? 1.0f : -1.0f);
+            penetrationDepth = distances.z;
+        }
+        return true;
+    }
+    return false;
+}
+
+void Simulation::resolveCollision(Particle& particle, const glm::vec3& normal, float penetrationDepth) {
+    // Move particle out of collision object
+    particle.position += normal * penetrationDepth;
+
+    // Calculate current velocity from Verlet integration
+    glm::vec3 velocity = particle.position - particle.prevPosition;
+    float speed = glm::length(velocity);
+
+    // Decompose velocity into normal and tangential components
+    float normalVel = glm::dot(velocity, normal);
+    glm::vec3 normalComponent = normalVel * normal;
+    glm::vec3 tangentialComponent = velocity - normalComponent;
+    float tangentialSpeed = glm::length(tangentialComponent);
+
+    // Washcloth parameters
+    const float staticFriction = 0.9f;      // Washcloth grips surfaces
+    const float kineticFriction = 0.7f;     // Lower when already moving
+    const float dampening = 0.85f;          // Absorb energy like fabric
+    const float restitution = 0.02f;        // Minimal bounce - fabric doesn't bounce
+    const float gripThreshold = 0.5f;       // Speed below which static friction kicks in
+
+    // Handle normal component (into/out of surface)
+    glm::vec3 newNormalComponent;
+    if (normalVel < 0) { 
+        newNormalComponent = -normalVel * restitution * normal;
+    }
+    else {
+        newNormalComponent = normalVel * normal * 0.95f;
+    }
+
+    // Handle tangential component (sliding along surface)
+    glm::vec3 newTangentialComponent;
+
+    if (tangentialSpeed < gripThreshold) {
+        // Static Friction
+        newTangentialComponent = tangentialComponent * (1.0f - staticFriction);
+    }
+    else {
+        // Kinetic Friction
+        if (tangentialSpeed > 0.0001f) {
+            glm::vec3 tangentialDirection = tangentialComponent / tangentialSpeed;
+            float newTangentialSpeed = tangentialSpeed * (1.0f - kineticFriction);
+            newTangentialComponent = tangentialDirection * newTangentialSpeed;
+        }
+        else {
+            newTangentialComponent = glm::vec3(0.0f);
+        }
+    }
+
+    // Combine components with overall dampening
+    glm::vec3 newVelocity = (newNormalComponent + newTangentialComponent) * dampening;
+
+    // Update previous position based on new velocity
+    particle.prevPosition = particle.position - newVelocity;
+}
+
 void Simulation::reset() {
     for (int y = 0; y < rows; ++y) {
         for (int x = 0; x < cols; ++x) {
             int idx = y * cols + x;
-            glm::vec3 originalPos = glm::vec3(x * spacing, -y * spacing, 0.0f);
+            glm::vec3 originalPos;
+
+            if (currentMode == SIMMODE::COLLISION) {
+                // Horizontal layout 
+                originalPos = glm::vec3(x * spacing, 0.0f, -y * spacing);
+            }
+            else {
+                // Vertical layout
+                originalPos = glm::vec3(x * spacing, -y * spacing, 0.0f);
+            }
 
             particles[idx].position = originalPos;
             particles[idx].prevPosition = originalPos;
@@ -257,7 +496,13 @@ void Simulation::reset() {
         }
     }
 
-    currentPinning = PINNINGMODE::TOP_ROW; 
+    collisionObject.position = glm::vec3((cols - 1) * spacing * 0.5f, -5.0f, -2.0f);
+
+    if (currentMode == SIMMODE::COLLISION) {
+        currentPinning = PINNINGMODE::ALL;
+    }
+  
+    
     applyPinning();
 
     std::fill(springActive.begin(), springActive.end(), true);
@@ -268,6 +513,12 @@ void Simulation::reset() {
         camera = { glm::vec3((cols - 1) * spacing * 0.5f, -(rows - 1) * spacing * 0.5f, 10.0f) };
         break;
     }
+    case SIMMODE::COLLISION:
+    {
+        camera = { glm::vec3((cols - 1) * spacing * 0.5f, 5.0f, 7.0f), glm::vec3(0.0f, 1.0f, 0.0f), -90.0f, -45.0f };
+        
+        break;
+    }
     case SIMMODE::FLAG:
     {
         camera = { glm::vec3(((cols - 1) * spacing * 0.5f) - 2.5f, (-(rows - 1) * spacing * 0.5f) - 7.0f, 25.0f) };
@@ -276,10 +527,7 @@ void Simulation::reset() {
 
     default:
         break;
-
     }
-    
-
 }
 
 bool Simulation::init() {
@@ -300,9 +548,9 @@ bool Simulation::init() {
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-    #ifdef __APPLE__
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
-    #endif
+#ifdef __APPLE__
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG);
+#endif
 
     window = SDL_CreateWindow("ClothSimGL", WinWidth, WinHeight, WindowFlags);
 
@@ -328,7 +576,6 @@ bool Simulation::init() {
     glEnable(GL_MULTISAMPLE);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
-   
 
     basePath = SDL_GetBasePath();
 
@@ -340,7 +587,7 @@ bool Simulation::init() {
     SDL_GetWindowSize(window, &w, &h);
     framebuffer_size_callback(w, h);
 
-    particleShader = { 
+    particleShader = {
         (fs::path(basePath) / "assets" / "shaders" / "particleShader.vert").string().c_str(),
         (fs::path(basePath) / "assets" / "shaders" / "particleShader.frag").string().c_str()
     };
@@ -368,6 +615,7 @@ bool Simulation::init() {
     initSprings();
     initClothMesh();
     initFlagMesh();
+    initCollisionObjects();
     initUBO();
 
     clothShader.use();
@@ -380,12 +628,46 @@ bool Simulation::init() {
     return true;
 }
 
+void Simulation::initCollisionObjects() {
+    // Generate cube
+    cube = generateCube(1.0f);
+    glGenVertexArrays(1, &cubeVAO);
+    glGenBuffers(1, &cubeVBO);
+
+    glBindVertexArray(cubeVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, cubeVBO);
+    glBufferData(GL_ARRAY_BUFFER, cube.size() * sizeof(PoleVertex), cube.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(PoleVertex), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(PoleVertex), (void*)offsetof(PoleVertex, normal));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+
+    // Generate sphere
+    sphere = generateSphere(1.0f, 20, 20);
+    glGenVertexArrays(1, &sphereVAO);
+    glGenBuffers(1, &sphereVBO);
+
+    glBindVertexArray(sphereVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, sphereVBO);
+    glBufferData(GL_ARRAY_BUFFER, sphere.size() * sizeof(PoleVertex), sphere.data(), GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(PoleVertex), (void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(PoleVertex), (void*)offsetof(PoleVertex, normal));
+    glEnableVertexAttribArray(1);
+
+    glBindVertexArray(0);
+}
+
 void Simulation::initUBO() {
     glGenBuffers(1, &uboMatrices);
     glBindBuffer(GL_UNIFORM_BUFFER, uboMatrices);
     glBufferData(GL_UNIFORM_BUFFER, 2 * sizeof(glm::mat4), nullptr, GL_DYNAMIC_DRAW);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
-    
+
     glBindBufferRange(GL_UNIFORM_BUFFER, 0, uboMatrices, 0, 2 * sizeof(glm::mat4));
 
     projectionMatrix = glm::perspective(45.0f, (float)w / (float)h, 0.1f, 100.0f);
@@ -395,7 +677,7 @@ void Simulation::initUBO() {
 }
 
 void Simulation::initParticle() {
-    
+
     glGenVertexArrays(1, &particleVAO);
     glGenBuffers(1, &particleVBO);
 
@@ -416,7 +698,7 @@ void Simulation::initSprings() {
 
     glBindVertexArray(springVAO);
     glBindBuffer(GL_ARRAY_BUFFER, springVBO);
-   
+
     glBufferData(GL_ARRAY_BUFFER, springs.size() * 2 * sizeof(glm::vec3), nullptr, GL_DYNAMIC_DRAW);
 
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
@@ -442,6 +724,13 @@ void Simulation::initClothMesh() {
     glBufferData(GL_ARRAY_BUFFER, clothTexCoords.size() * sizeof(glm::vec2), clothTexCoords.data(), GL_STATIC_DRAW);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
     glEnableVertexAttribArray(1);
+
+    // Normal VBO
+    glGenBuffers(1, &clothNormVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, clothNormVBO);
+    glBufferData(GL_ARRAY_BUFFER, particles.size() * sizeof(glm::vec3), nullptr, GL_DYNAMIC_DRAW);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
+    glEnableVertexAttribArray(2);
 
     // EBO
     glGenBuffers(1, &clothEBO);
@@ -509,14 +798,14 @@ void Simulation::initFlagMesh() {
 
 
 glm::vec3 Simulation::screenToWorld(glm::vec2 screenPos, float depth) {
-   
+
     glm::mat4 view = camera.GetViewMatrix();
-    
+
     glm::vec4 viewport = glm::vec4(0, 0, w, h);
 
     glm::vec3 worldPos = glm::unProject(
         glm::vec3(screenPos.x, h - screenPos.y, depth),
-        view,      
+        view,
         projectionMatrix,
         viewport
     );
@@ -545,7 +834,7 @@ void Simulation::handleMouseTearing() {
 }
 
 void Simulation::tearSpringsAroundPoint(glm::vec3 worldPos, float radius) {
-    int tornCount = 0; 
+    int tornCount = 0;
 
     for (size_t i = 0; i < springs.size(); ++i) {
         if (!springActive[i]) continue;
@@ -592,11 +881,11 @@ Particle* Simulation::findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 ra
     }
 
     for (auto& p : particles) {
-       
+
         glm::vec3 vec_to_particle = p.position - rayOrigin;
-        
+
         glm::vec3 closest_point_on_ray = rayOrigin + glm::dot(vec_to_particle, rayDir) * rayDir;
-       
+
         glm::vec3 vec = p.position - closest_point_on_ray;
         float dist_sq = glm::dot(vec, vec);
 
@@ -605,7 +894,7 @@ Particle* Simulation::findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 ra
             closest_particle = &p;
         }
     }
-    
+
     if (closest_particle && sqrt(min_dist_sq) < tearRadius * 2.0f) {
         return closest_particle;
     }
@@ -661,15 +950,33 @@ void Simulation::processEvent() {
             case SDLK_E:
                 currentMode = static_cast<SIMMODE>((static_cast<int>(currentMode) + 1) % static_cast<int>(SIMMODE::LAST));
                 reset();
+                if (currentMode == SIMMODE::TEAR) {
+                    currentPinning = PINNINGMODE::TOP_ROW;
+                    applyPinning();
+                }
                 break;
-            case SDLK_P:   
-                currentPinning = static_cast<PINNINGMODE>((static_cast<int>(currentPinning) + 1) % static_cast<int>(PINNINGMODE::LAST));
+            case SDLK_P:
+                if (currentMode == SIMMODE::COLLISION) {
+                    currentPinning = PINNINGMODE::NONE;
+                }
+                else if (currentMode == SIMMODE::TEAR) {
+                    
+                    currentPinning = static_cast<PINNINGMODE>((static_cast<int>(currentPinning) + 1) % static_cast<int>(PINNINGMODE::LAST));
+                    reset();
+                }      
                 applyPinning();
                 break;
+            case SDLK_C:
+                if (currentMode == SIMMODE::COLLISION) {
+                    currentCollisionShape = static_cast<COLLISIONSHAPE>((static_cast<int>(currentCollisionShape) + 1) % static_cast<int>(COLLISIONSHAPE::LAST));
+                }
+                break;
             case SDLK_SPACE:
-                isCameraActive = !isCameraActive;
-                SDL_SetWindowRelativeMouseMode(window, isCameraActive);
-                if (isCameraActive) leftMouseDown = false;
+                if (currentMode != SIMMODE::TEAR) {
+                    isCameraActive = !isCameraActive;
+                    SDL_SetWindowRelativeMouseMode(window, isCameraActive);
+                    if (isCameraActive) leftMouseDown = false;
+                }
                 break;
             default:
                 break;
@@ -692,7 +999,7 @@ void Simulation::processEvent() {
             }
             else {
                 mousePos = glm::vec2(event.motion.x, event.motion.y);
-            } 
+            }
         }
         else if (event.type == SDL_EVENT_WINDOW_RESIZED)
         {
@@ -707,13 +1014,13 @@ void Simulation::processEvent() {
     }
 }
 
-std::vector<glm::vec3> Simulation::computeNormals() {
+std::vector<glm::vec3> Simulation::computeNormals(const std::vector<unsigned int>& indices) {
     std::vector<glm::vec3> normals(particles.size(), glm::vec3(0.0f));
     // Accumulate per-triangle normals
-    for (size_t i = 0; i < flagIndices.size(); i += 3) {
-        unsigned int ia = flagIndices[i + 0];
-        unsigned int ib = flagIndices[i + 1];
-        unsigned int ic = flagIndices[i + 2];
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        unsigned int ia = indices[i + 0];
+        unsigned int ib = indices[i + 1];
+        unsigned int ic = indices[i + 2];
         const glm::vec3& a = particles[ia].position;
         const glm::vec3& b = particles[ib].position;
         const glm::vec3& c = particles[ic].position;
@@ -761,138 +1068,288 @@ std::vector<PoleVertex> Simulation::generateCylinder(float radius, float height,
     return vertices;
 }
 
+std::vector<PoleVertex> Simulation::generateCube(float size) {
+    std::vector<PoleVertex> vertices;
+    float half = size * 0.5f;
+
+    // Define cube faces with normals
+    std::vector<glm::vec3> positions = {
+        // Front face
+        {-half, -half,  half}, { half, -half,  half}, { half,  half,  half},
+        {-half, -half,  half}, { half,  half,  half}, {-half,  half,  half},
+        // Back face
+        { half, -half, -half}, {-half, -half, -half}, {-half,  half, -half},
+        { half, -half, -half}, {-half,  half, -half}, { half,  half, -half},
+        // Left face
+        {-half, -half, -half}, {-half, -half,  half}, {-half,  half,  half},
+        {-half, -half, -half}, {-half,  half,  half}, {-half,  half, -half},
+        // Right face
+        { half, -half,  half}, { half, -half, -half}, { half,  half, -half},
+        { half, -half,  half}, { half,  half, -half}, { half,  half,  half},
+        // Bottom face
+        {-half, -half, -half}, { half, -half, -half}, { half, -half,  half},
+        {-half, -half, -half}, { half, -half,  half}, {-half, -half,  half},
+        // Top face
+        {-half,  half,  half}, { half,  half,  half}, { half,  half, -half},
+        {-half,  half,  half}, { half,  half, -half}, {-half,  half, -half}
+    };
+
+    std::vector<glm::vec3> normals = {
+        // Front face
+        {0, 0, 1}, {0, 0, 1}, {0, 0, 1},
+        {0, 0, 1}, {0, 0, 1}, {0, 0, 1},
+        // Back face
+        {0, 0, -1}, {0, 0, -1}, {0, 0, -1},
+        {0, 0, -1}, {0, 0, -1}, {0, 0, -1},
+        // Left face
+        {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0},
+        {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0},
+        // Right face
+        {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
+        {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
+        // Bottom face
+        {0, -1, 0}, {0, -1, 0}, {0, -1, 0},
+        {0, -1, 0}, {0, -1, 0}, {0, -1, 0},
+        // Top face
+        {0, 1, 0}, {0, 1, 0}, {0, 1, 0},
+        {0, 1, 0}, {0, 1, 0}, {0, 1, 0}
+    };
+
+    for (size_t i = 0; i < positions.size(); ++i) {
+        vertices.push_back({ positions[i], normals[i] });
+    }
+
+    return vertices;
+}
+
+std::vector<PoleVertex> Simulation::generateSphere(float radius, int rings, int sectors) {
+    constexpr float PI = 3.14159265359f;
+    std::vector<PoleVertex> vertices;
+
+    for (int i = 0; i <= rings; ++i) {
+        float phi = PI * i / rings;
+        float cosPhi = cos(phi);
+        float sinPhi = sin(phi);
+
+        for (int j = 0; j <= sectors; ++j) {
+            float theta = 2.0f * PI * j / sectors;
+            float cosTheta = cos(theta);
+            float sinTheta = sin(theta);
+
+            glm::vec3 pos = {
+                radius * sinPhi * cosTheta,
+                radius * cosPhi,
+                radius * sinPhi * sinTheta
+            };
+
+            glm::vec3 normal = glm::normalize(pos);
+
+            if (i < rings && j < sectors) {
+                int first = i * (sectors + 1) + j;
+                int second = first + sectors + 1;
+
+                // First triangle
+                vertices.push_back({ pos, normal });
+
+                // Calculate next positions
+                float nextPhi = PI * (i + 1) / rings;
+                float nextTheta = 2.0f * PI * (j + 1) / sectors;
+
+                glm::vec3 pos1 = {
+                    radius * sin(nextPhi) * cos(theta),
+                    radius * cos(nextPhi),
+                    radius * sin(nextPhi) * sin(theta)
+                };
+
+                glm::vec3 pos2 = {
+                    radius * sin(nextPhi) * cos(nextTheta),
+                    radius * cos(nextPhi),
+                    radius * sin(nextPhi) * sin(nextTheta)
+                };
+
+                vertices.push_back({ pos1, glm::normalize(pos1) });
+                vertices.push_back({ pos2, glm::normalize(pos2) });
+
+                // Second triangle
+                vertices.push_back({ pos, normal });
+                vertices.push_back({ pos2, glm::normalize(pos2) });
+
+                glm::vec3 pos3 = {
+                    radius * sinPhi * cos(nextTheta),
+                    radius * cosPhi,
+                    radius * sinPhi * sin(nextTheta)
+                };
+
+                vertices.push_back({ pos3, glm::normalize(pos3) });
+            }
+        }
+    }
+
+    return vertices;
+}
 
 void Simulation::render() {
 
-
     glClearColor(0.1f, 0.1f, 0.15f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    
+
     glm::mat4 view = camera.GetViewMatrix();
     glBindBuffer(GL_UNIFORM_BUFFER, uboMatrices);
     glBufferSubData(GL_UNIFORM_BUFFER, sizeof(glm::mat4), sizeof(glm::mat4), glm::value_ptr(view));
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     // draw particles
-   /* std::vector<glm::vec3> positions;
-    positions.reserve(particles.size());
-    for (auto& p : particles) 
-    {
-        positions.emplace_back(p.position);
-    }
-    glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
-    particleShader.setVec3("color", glm::vec3(1.0f, 0.9f, 0.3f));
-    glBindVertexArray(particleVAO);
-    glDrawArrays(GL_POINTS, 0, positions.size());*/
+  /* std::vector<glm::vec3> positions;
+   positions.reserve(particles.size());
+   for (auto& p : particles)
+   {
+       positions.emplace_back(p.position);
+   }
+   glBindBuffer(GL_ARRAY_BUFFER, particleVBO);
+   glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
+   particleShader.setVec3("color", glm::vec3(1.0f, 0.9f, 0.3f));
+   glBindVertexArray(particleVAO);
+   glDrawArrays(GL_POINTS, 0, positions.size());*/
 
     
     switch (currentMode) {
 
         // draw springs
-        case SIMMODE::TEAR:
-        {
-            particleShader.use();
-            std::vector<glm::vec3> activeSpringPositions;
-            activeSpringPositions.reserve(springs.size() * 2);
+    case SIMMODE::TEAR:
+    {
+        particleShader.use();
+        std::vector<glm::vec3> activeSpringPositions;
+        activeSpringPositions.reserve(springs.size() * 2);
 
-            for (size_t i = 0; i < springs.size(); ++i) {
-                if (springActive[i]) {
-                    activeSpringPositions.emplace_back(springs[i].p1->position);
-                    activeSpringPositions.emplace_back(springs[i].p2->position);
-                }
+        for (size_t i = 0; i < springs.size(); ++i) {
+            if (springActive[i]) {
+                activeSpringPositions.emplace_back(springs[i].p1->position);
+                activeSpringPositions.emplace_back(springs[i].p2->position);
             }
-
-            if (!activeSpringPositions.empty()) {
-                glBindBuffer(GL_ARRAY_BUFFER, springVBO);
-                glBufferSubData(GL_ARRAY_BUFFER, 0, activeSpringPositions.size() * sizeof(glm::vec3), activeSpringPositions.data());
-                particleShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
-                glBindVertexArray(springVAO);
-                glDrawArrays(GL_LINES, 0, activeSpringPositions.size());
-            }
-            break;
-        }
-        // draw textures
-        case SIMMODE::COLLISION:
-        {
-            clothShader.use();
-            glm::mat4 clothModel = glm::mat4(1.0f);
-            clothShader.setMat4("model", clothModel);
-
-            std::vector<glm::vec3> positions;
-            positions.reserve(particles.size());
-            for (auto& p : particles) {
-                positions.emplace_back(p.position);
-            }
-            glBindBuffer(GL_ARRAY_BUFFER, clothVBO);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
-
-            glBindVertexArray(clothVAO);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, clothTexture);
-            glDrawElements(GL_TRIANGLES, clothIndices.size(), GL_UNSIGNED_INT, 0);
-            glBindVertexArray(0);
-            break;
-        }
-        case SIMMODE::FLAG:
-        {
-
-            flagShader.use();
-            flagShader.setVec3("light.direction", 1.2f, 1.0f, 5.0f);
-            flagShader.setVec3("viewPos", camera.Position);
-
-            // light properties
-            flagShader.setVec3("light.ambient", 0.2f, 0.2f, 0.2f);
-            flagShader.setVec3("light.diffuse", 0.5f, 0.5f, 0.5f);
-            flagShader.setVec3("light.specular", 1.0f, 1.0f, 1.0f);
-
-            // material properties
-            flagShader.setVec3("material.specular", 0.5f, 0.5f, 0.5f);
-            flagShader.setFloat("material.shininess", 32.0f);
-
-            glm::mat4 flagModel = glm::mat4(1.0f);
-            flagModel = glm::translate(flagModel, glm::vec3(0.0f, 0.0f, 0.0f));
-            flagShader.setMat4("model", flagModel);
-
-            std::vector<glm::vec3> positions;
-            positions.reserve(particles.size());
-            for (auto& p : particles) {
-                positions.emplace_back(p.position);
-            }
-            glBindBuffer(GL_ARRAY_BUFFER, flagVBO);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
-
-            // Update normals
-            std::vector<glm::vec3> normals = computeNormals();
-            glBindBuffer(GL_ARRAY_BUFFER, flagNormVBO);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, normals.size() * sizeof(glm::vec3), normals.data());
-
-            glBindVertexArray(flagVAO);
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, flagTexture);
-            
-            glDrawElements(GL_TRIANGLES, flagIndices.size(), GL_UNSIGNED_INT, 0);
-
-            glBindVertexArray(0);
-
-            glm::mat4 model = glm::mat4(1.0f);
-            model = glm::translate(model, glm::vec3(0.0f, -20.0f, 0.0f));
-
-            poleShader.use();
-            poleShader.setMat4("model", model);
-
-            poleShader.setVec3("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
-            poleShader.setVec3("viewPos", camera.Position);
-            poleShader.setVec3("lightColor", glm::vec3(1.0f));
-            poleShader.setVec3("objectColor", glm::vec3(0.8f, 0.8f, 0.8f));
-
-            glBindVertexArray(poleVAO);
-            glDrawArrays(GL_TRIANGLES, 0, cylinder.size());
-            glBindVertexArray(0);
-
-            break;
         }
 
+        if (!activeSpringPositions.empty()) {
+            glBindBuffer(GL_ARRAY_BUFFER, springVBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, activeSpringPositions.size() * sizeof(glm::vec3), activeSpringPositions.data());
+            particleShader.setVec3("color", glm::vec3(0.8f, 0.8f, 0.8f));
+            glBindVertexArray(springVAO);
+            glDrawArrays(GL_LINES, 0, activeSpringPositions.size());
+        }
+        break;
+    }
+
+    case SIMMODE::COLLISION:
+    {
+        // Render cloth
+        clothShader.use();
+        glm::mat4 clothModel = glm::mat4(1.0f);
+        clothShader.setMat4("model", clothModel);
+
+        std::vector<glm::vec3> positions;
+        positions.reserve(particles.size());
+        for (auto& p : particles) {
+            positions.emplace_back(p.position);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, clothVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
+
+        // Update normals
+        std::vector<glm::vec3> normals = computeNormals(clothIndices);
+        glBindBuffer(GL_ARRAY_BUFFER, clothNormVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, normals.size() * sizeof(glm::vec3), normals.data());
+
+        glBindVertexArray(clothVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, clothTexture);
+        glDrawElements(GL_TRIANGLES, clothIndices.size(), GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+
+        // Render collision object
+        poleShader.use();
+        glm::mat4 collisionModel = glm::mat4(1.0f);
+        collisionModel = glm::translate(collisionModel, collisionObject.position);
+        collisionModel = glm::scale(collisionModel, collisionObject.size);
+        poleShader.setMat4("model", collisionModel);
+
+        poleShader.setVec3("lightPos", glm::vec3(5.0f, 10.0f, 5.0f));
+        poleShader.setVec3("viewPos", camera.Position);
+        poleShader.setVec3("lightColor", glm::vec3(1.0f));
+        poleShader.setVec3("objectColor", glm::vec3(0.8f, 0.3f, 0.3f));
+
+        if (currentCollisionShape == COLLISIONSHAPE::CUBE) {
+            glBindVertexArray(cubeVAO);
+            glDrawArrays(GL_TRIANGLES, 0, cube.size());
+        }
+        else {
+            glBindVertexArray(sphereVAO);
+            glDrawArrays(GL_TRIANGLES, 0, sphere.size());
+        }
+        glBindVertexArray(0);
+        break;
+    }
+
+    case SIMMODE::FLAG:
+    {
+        
+        flagShader.use();
+        flagShader.setVec3("light.direction", -0.3f, -1.0f, -0.2f);
+        flagShader.setVec3("viewPos", camera.Position);
+
+        // light properties
+        flagShader.setVec3("light.ambient", 0.25f, 0.25f, 0.25f);
+        flagShader.setVec3("light.diffuse", 0.8f, 0.8f, 0.7f); 
+        flagShader.setVec3("light.specular", 1.0f, 1.0f, 0.9f);
+
+        // material properties
+        flagShader.setVec3("material.specular", 0.25f, 0.25f, 0.25f); 
+        flagShader.setFloat("material.shininess", 32.0f);
+
+        glm::mat4 flagModel = glm::mat4(1.0f);
+        flagShader.setMat4("model", flagModel);
+
+        std::vector<glm::vec3> positions;
+        positions.reserve(particles.size());
+        for (auto& p : particles) {
+            positions.emplace_back(p.position);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, flagVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, positions.size() * sizeof(glm::vec3), positions.data());
+
+        // Update normals
+        std::vector<glm::vec3> normals = computeNormals(flagIndices);
+        glBindBuffer(GL_ARRAY_BUFFER, flagNormVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, normals.size() * sizeof(glm::vec3), normals.data());
+
+        glBindVertexArray(flagVAO);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, flagTexture);
+
+        glDepthMask(GL_FALSE);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDrawElements(GL_TRIANGLES, flagIndices.size(), GL_UNSIGNED_INT, 0);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+
+        glBindVertexArray(0);
+
+        glm::mat4 model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0f, -20.0f, 0.0f));
+
+        poleShader.use();
+        poleShader.setMat4("model", model);
+
+        poleShader.setVec3("lightPos", glm::vec3(1.2f, 1.0f, 2.0f));
+        poleShader.setVec3("viewPos", camera.Position);
+        poleShader.setVec3("lightColor", glm::vec3(1.0f));
+        poleShader.setVec3("objectColor", glm::vec3(0.8f, 0.8f, 0.8f));
+
+        glBindVertexArray(poleVAO);
+        glDrawArrays(GL_TRIANGLES, 0, cylinder.size());
+        glBindVertexArray(0);
+
+        break;
+    }
     }
 
     SDL_GL_SwapWindow(window);
@@ -906,6 +1363,7 @@ void Simulation::clean() {
     glDeleteVertexArrays(1, &clothVAO);
     glDeleteBuffers(1, &clothVBO);
     glDeleteBuffers(1, &clothTexVBO);
+    glDeleteBuffers(1, &clothNormVBO);
     glDeleteBuffers(1, &clothEBO);
     glDeleteTextures(1, &clothTexture);
     glDeleteVertexArrays(1, &flagVAO);
@@ -916,6 +1374,10 @@ void Simulation::clean() {
     glDeleteTextures(1, &flagTexture);
     glDeleteVertexArrays(1, &poleVAO);
     glDeleteBuffers(1, &poleVBO);
+    glDeleteVertexArrays(1, &cubeVAO);
+    glDeleteBuffers(1, &cubeVBO);
+    glDeleteVertexArrays(1, &sphereVAO);
+    glDeleteBuffers(1, &sphereVBO);
     particleShader.clean();
     clothShader.clean();
     poleShader.clean();
@@ -946,7 +1408,7 @@ unsigned int Simulation::loadTexture(char const* path)
     {
 
         int nrComponents = SDL_BYTESPERPIXEL(surface->format);
-        
+
         GLenum format;
         if (nrComponents == 1)
             format = GL_RED;
@@ -973,5 +1435,3 @@ unsigned int Simulation::loadTexture(char const* path)
 
     return textureID;
 }
-
-
