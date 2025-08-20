@@ -187,78 +187,78 @@ void Simulation::applyPinning() {
 }
 
 void Simulation::run() {
-
+    const float FIXED_DT = 1.0f / 60.0f;
+    float accumulator = 0.0f;
     lastFrameTime = SDL_GetPerformanceCounter();
 
     while (running) {
         Uint64 currentFrameTime = SDL_GetPerformanceCounter();
         deltaTime = (float)(currentFrameTime - lastFrameTime) / SDL_GetPerformanceFrequency();
         lastFrameTime = currentFrameTime;
-
-        deltaTime = std::min(deltaTime, 1.0f / 60.0f);
+        
+        accumulator += deltaTime;
 
         processEvent();
-
         if (currentMode == SIMMODE::FLAG) {
             if (currentPinning != PINNINGMODE::FLAG) {
                 currentPinning = PINNINGMODE::FLAG;
                 applyPinning();
             }
         }
-
         handleMouseActivity();
 
-        // Apply forces
-        for (auto& p : particles) {
-            
-            // Gravity
-            p.addForce(glm::vec3(0.0f, -9.81f * p.mass, 0.0f));
-            
+       
+        while (accumulator >= FIXED_DT) {
+            // Apply forces
+            for (auto& p : particles) {
+                // Gravity
+                if (currentMode == SIMMODE::COLLISION) {
+                    p.addForce(glm::vec3(0.0f, -3.0f * p.mass, 0.0f));
+                }
+                else {
+                    p.addForce(glm::vec3(0.0f, -9.81f * p.mass, 0.0f));
+                }
 
-            // Add air resistance 
-            if (currentMode == SIMMODE::COLLISION) {
-                glm::vec3 vel = p.position - p.prevPosition;
-                glm::vec3 airResistance = -vel * 0.02f; // Light air resistance
-                p.addForce(airResistance);
-            }
+                // Wind for flag mode
+                if (currentMode == SIMMODE::FLAG) {
+                    const glm::vec3 windDir = glm::normalize(glm::vec3(1.0f, 0.0f, 0.0f));
+                    // Use consistent time source
+                    float t = (float)SDL_GetPerformanceCounter() / SDL_GetPerformanceFrequency();
+                    float gust = 8.0f + 5.0f * std::sin(t * 1.5f) + 3.0f * std::sin(t * 0.5f + 1.0f);
+                    glm::vec3 lift = glm::vec3(0.0f, 0.2f, 0.0f);
+                    p.addForce(windDir * gust + lift);
 
-            // Wind for flag mode
-            if (currentMode == SIMMODE::FLAG) {
-                const glm::vec3 windDir = glm::normalize(glm::vec3(1.0f, 0.0f, 0.0f));
-                float t = SDL_GetTicks() * 0.001f;
-                float gust = 8.0f + 5.0f * std::sin(t * 1.5f) + 3.0f * std::sin(t * 0.5f + 1.0f);
-                glm::vec3 lift = glm::vec3(0.0f, 0.2f, 0.0f);
-
-                p.addForce(windDir * gust + lift);
-
-                glm::vec3 v = (p.position - p.prevPosition) / glm::max(deltaTime, 1e-4f);
-                p.addForce(-0.1f * v);
-            }
-        }
-
-        for (size_t i = 0; i < springs.size(); ++i) {
-            if (springActive[i]) {
-                springs[i].applyForces();
-            }
-        }
-
-        for (auto& p : particles) {
-            p.updateVerlet(deltaTime);
-        }
-
-        
-        for (int i = 0; i < 5; ++i) { 
-           
-            for (size_t j = 0; j < springs.size(); ++j) {
-                if (springActive[j]) {
-                    springs[j].satisfyConstraint();
+                    // Use fixed timestep for velocity calculation
+                    glm::vec3 v = (p.position - p.prevPosition) / FIXED_DT;
+                    p.addForce(-0.1f * v);
                 }
             }
 
-            if (currentMode == SIMMODE::COLLISION) {
-
-                handleCollisions();
+            // Apply spring forces
+            for (size_t i = 0; i < springs.size(); ++i) {
+                if (springActive[i]) {
+                    springs[i].applyForces();
+                }
             }
+
+            // Update particles
+            for (auto& p : particles) {
+                p.updateVerlet(FIXED_DT);
+            }
+
+            // Constraint satisfaction iterations
+            for (int i = 0; i < 5; ++i) {
+                for (size_t j = 0; j < springs.size(); ++j) {
+                    if (springActive[j]) {
+                        springs[j].satisfyConstraint();
+                    }
+                }
+                if (currentMode == SIMMODE::COLLISION) {
+                    handleCollisions();
+                }
+            }
+
+            accumulator -= FIXED_DT;
         }
 
         render();
@@ -420,6 +420,8 @@ void Simulation::reset() {
     switch (currentMode) {
     case SIMMODE::TEAR:
     {
+        isCameraActive = false;
+        SDL_SetWindowRelativeMouseMode(window, false);
         camera = { glm::vec3((cols - 1) * spacing * 0.5f, -(rows - 1) * spacing * 0.5f, 10.0f) };
         break;
     }
