@@ -482,7 +482,7 @@ bool Simulation::init() {
     }
 
     if (!SDL_GL_SetSwapInterval(1)) {
-        SDL_Log("Unable to disable VSync: %s", SDL_GetError());
+        SDL_Log("Unable to enable VSync: %s", SDL_GetError());
     }
 
     if (!gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress))
@@ -587,7 +587,6 @@ bool Simulation::init() {
         SDL_Log("Failed to load icon image: %s\n\n", SDL_GetError());
     }
 
-    
     initParticle();
     initSprings();
     initClothMesh();
