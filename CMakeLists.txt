@@ -25,6 +25,10 @@ set(HEADERS ${CMAKE_SOURCE_DIR}/include)
 
 add_executable (${PROJECT_NAME} ${SOURCES})
 
+if(WIN32)
+    target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/resource.rc)
+endif()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE SDL3::SDL3 glm::glm $<IF:$<TARGET_EXISTS:SDL3_image::SDL3_image-shared>,SDL3_image::SDL3_image-shared,SDL3_image::SDL3_image-static> assimp::assimp imgui::imgui) 
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/external/glad/include ${HEADERS}) 
 

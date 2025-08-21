@@ -18,9 +18,9 @@
 
 constexpr int WinWidth = 800;
 constexpr int WinHeight = 600;
-constexpr int rows = 30;
-constexpr int cols = 40;
-constexpr float spacing = 0.18f;
+constexpr int rows = 75;
+constexpr int cols = 100;
+constexpr float spacing = 0.07091f;
 
 constexpr float k_structural = 200.0f;
 constexpr float k_shear = 120.0f;
@@ -106,6 +106,7 @@ private:
 	unsigned int collisionCubeMapTexture;
 	unsigned int flagCubeMapTexture;
 	bool fullscreen;
+	bool isIconSet;
 	bool running;
 	int w, h;
 	SDL_Window* window;
@@ -122,6 +123,7 @@ private:
 	std::array<std::string, 6> tearFaces;
 	std::array<std::string, 6> collisionFaces;
 	std::array<std::string, 6> flagFaces;
+	static bool vsync;
 
 private:
 	void initUBO();

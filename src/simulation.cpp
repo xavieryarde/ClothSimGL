@@ -1,7 +1,10 @@
 #include "simulation.hpp"
 
+bool Simulation::vsync = true;
+
 Simulation::Simulation()
     : fullscreen(true)
+    , isIconSet(false)
     , running(false)
     , w(0)
     , h(0)
@@ -195,7 +198,7 @@ void Simulation::run() {
         Uint64 currentFrameTime = SDL_GetPerformanceCounter();
         deltaTime = (float)(currentFrameTime - lastFrameTime) / SDL_GetPerformanceFrequency();
         lastFrameTime = currentFrameTime;
-        
+        deltaTime = glm::min(deltaTime, 1.0f / 60.0f);
         accumulator += deltaTime;
 
         processEvent();
@@ -247,7 +250,7 @@ void Simulation::run() {
             }
 
             // Constraint satisfaction iterations
-            for (int i = 0; i < 5; ++i) {
+            for (int i = 0; i < 15; ++i) {
                 for (size_t j = 0; j < springs.size(); ++j) {
                     if (springActive[j]) {
                         springs[j].satisfyConstraint();
@@ -478,6 +481,10 @@ bool Simulation::init() {
         return false;
     }
 
+    if (!SDL_GL_SetSwapInterval(1)) {
+        SDL_Log("Unable to disable VSync: %s", SDL_GetError());
+    }
+
     if (!gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress))
     {
         SDL_Log("Failed to initialize GLAD\n");
@@ -571,7 +578,16 @@ bool Simulation::init() {
 
     flagCubeMapTexture = loadCubemap(flagFaces);
 
+    SDL_Surface* iconSurface = IMG_Load((fs::path(basePath) / "assets" / "icons" / "window_icon.png").string().c_str());
+    if (iconSurface) {
+        SDL_SetWindowIcon(window, iconSurface);
+        SDL_DestroySurface(iconSurface);
+    }
+    else {
+        SDL_Log("Failed to load icon image: %s\n\n", SDL_GetError());
+    }
 
+    
     initParticle();
     initSprings();
     initClothMesh();
@@ -959,9 +975,24 @@ void Simulation::processEvent() {
                 running = false;
                 break;
             case SDLK_F:
+            {
                 fullscreen = !fullscreen;
                 SDL_SetWindowFullscreen(window, fullscreen);
+
+                if (!isIconSet) {
+                    // Load icon image
+                    SDL_Surface* iconSurface = IMG_Load((fs::path(basePath) / "assets" / "icons" / "window_icon.png").string().c_str());
+                    if (iconSurface) {
+                        SDL_SetWindowIcon(window, iconSurface);
+                        SDL_DestroySurface(iconSurface);
+                        isIconSet = true;
+                    }
+                    else {
+                        SDL_Log("Failed to load icon image: %s\n\n", SDL_GetError());
+                    }
+                }
                 break;
+            }
             case SDLK_R:
                 reset();
                 break;
@@ -1490,8 +1521,24 @@ void Simulation::renderGUI() {
     // Set Fullscreen
     if (ImGui::Checkbox("Fullscreen", &fullscreen)) {
         SDL_SetWindowFullscreen(window, fullscreen);
+        if (!isIconSet) {
+            // Load icon image
+            SDL_Surface* iconSurface = IMG_Load((fs::path(basePath) / "assets" / "icons" / "window_icon.png").string().c_str());
+            if (iconSurface) {
+                SDL_SetWindowIcon(window, iconSurface);
+                SDL_DestroySurface(iconSurface);
+                isIconSet = true;
+            }
+            else {
+                SDL_Log("Failed to load icon image: %s\n\n", SDL_GetError());
+            }
+        }
     }
 
+    // Set Vsync
+    if (ImGui::Checkbox("VSync", &vsync)) {
+        SDL_GL_SetSwapInterval(vsync ? 1 : 0);
+    }
 
     // Physics Info
     ImGui::Separator();
@@ -1510,12 +1557,24 @@ void Simulation::renderGUI() {
     ImGui::Separator();
     ImGui::Text("Controls:");
     ImGui::TextWrapped("- E: Switch Sim Mode");
-    ImGui::TextWrapped("- P: Switch Pin Mode");
-    ImGui::TextWrapped("- C: Switch Collision Object");
-    ImGui::TextWrapped("- SPACE: Toggle Camera (%s)", isCameraActive ? "Free Look" : "Fixed");
-    ImGui::TextWrapped("- W/A/S/D: Move Camera");
-    ImGui::TextWrapped("- Drag Mouse: Look Around (when camera active)");
-    ImGui::TextWrapped("- Left Click: Tear Cloth (in Tear mode)");
+
+    if (currentMode == SIMMODE::TEAR) {
+        ImGui::TextWrapped("- P: Switch Pin Mode");
+        ImGui::TextWrapped("- Left Click + Drag: Tear Cloth");
+    }
+
+    if (currentMode == SIMMODE::COLLISION) {
+        ImGui::TextWrapped("- P: Drop Cloth");
+        ImGui::TextWrapped("- C: Switch Collision Object");
+    }
+        
+    if (currentMode == SIMMODE::COLLISION || currentMode == SIMMODE::FLAG) {
+        ImGui::TextWrapped("- SPACE: Toggle Camera (%s)", isCameraActive ? "Free Look" : "Fixed");
+        ImGui::TextWrapped("- W/A/S/D: Move Camera");
+        ImGui::TextWrapped("- Mouse: Look Around (when camera active)");
+    }
+
+    ImGui::TextWrapped("- F: Toggle Fullscreen");
     ImGui::TextWrapped("- R: Reset Simulation");
     ImGui::TextWrapped("- ESC: Exit");
 

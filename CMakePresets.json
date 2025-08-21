@@ -61,19 +61,19 @@
   ],
   "buildPresets": [
     {
-      "name": "x64-dbg",
+      "name": "win64-dbg",
       "configurePreset": "win64-dbg"
     },
     {
-      "name": "x64-rel",
+      "name": "win64-rel",
       "configurePreset": "win64-rel"
     },
     {
-      "name": "x86-dbg",
+      "name": "win32-dbg",
       "configurePreset": "win32-dbg"
     },
     {
-      "name": "x86-rel",
+      "name": "win32-rel",
       "configurePreset": "win32-rel"
     }
   ]
