@@ -118,8 +118,5 @@ cmake --install build/win64-rel
 - **Flag** - Pin left edge (flag pole)
 - **None** - No pinning (free fall)
 
-## License
-This project is free to use for any purpose and provided as-is.
-
 ## Todos
 - Add support for linux/MacOS
