@@ -1,6 +1,12 @@
 ﻿# ClothSimGL
 A real-time cloth simulation application built with OpenGL, featuring multiple simulation modes including cloth tearing, collision physics, and flag animation.
 
+
+
+https://github.com/user-attachments/assets/d74b0321-9c9e-4b48-84fc-2cad755cbc96
+
+
+
 ## Features
 
 ### Simulation Modes
