@@ -9,11 +9,12 @@
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
 #include <imgui_impl_opengl3.h>
+#include "textureloader.hpp"
+#include "meshgenerator.hpp"
 #include "particle.hpp"
 #include "springs.hpp"
 #include "shaders.hpp"
 #include "camera.hpp"
-#include "model.hpp"
 
 
 constexpr int WinWidth = 800;
@@ -54,10 +55,6 @@ enum class COLLISIONSHAPE {
 	LAST
 };
 
-struct PoleVertex {
-	glm::vec3 position;
-	glm::vec3 normal;
-};
 
 struct CollisionObject {
 	glm::vec3 position;
@@ -147,14 +144,9 @@ private:
 	Particle* findClosestParticleToRay(glm::vec3 rayOrigin, glm::vec3 rayDir);
 	void render();
 	void framebuffer_size_callback(int width, int height);
-	unsigned int loadTexture(char const* path);
-	unsigned int loadCubemap(std::array<std::string, 6> faces);
 	void reset();
 	void clean();
 	std::vector<glm::vec3> computeNormals(const std::vector<unsigned int>& indices);
-	std::vector<PoleVertex> generateCylinder(float radius, float height, int slices);
-	std::vector<PoleVertex> generateCube(float size);
-	std::vector<PoleVertex> generateSphere(float radius, int rings, int sectors);
 	void renderGUI();
 
 };

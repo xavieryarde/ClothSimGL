@@ -513,7 +513,7 @@ bool Simulation::init() {
         return false;
     }
 
-    SDL_GetWindowSize(window, &w, &h);
+    SDL_GetWindowSizeInPixels(window, &w, &h);
     framebuffer_size_callback(w, h);
 
     particleShader = {
@@ -568,15 +568,15 @@ bool Simulation::init() {
         (fs::path(basePath) / "assets" / "skyboxes" / "sky_flag" / "nz.png").string()
     };
 
-    clothTexture = loadTexture((fs::path(basePath) / "assets" / "textures" / "cloth.jpg").string().c_str());
+    clothTexture = TextureLoader::loadTexture((fs::path(basePath) / "assets" / "textures" / "cloth.jpg").string().c_str());
 
-    flagTexture = loadTexture((fs::path(basePath) / "assets" / "textures" / "flag.png").string().c_str());
+    flagTexture = TextureLoader::loadTexture((fs::path(basePath) / "assets" / "textures" / "flag.png").string().c_str());
 
-    tearCubeMapTexture = loadCubemap(tearFaces);
+    tearCubeMapTexture = TextureLoader::loadCubemap(tearFaces);
     
-    collisionCubeMapTexture = loadCubemap(collisionFaces);
+    collisionCubeMapTexture = TextureLoader::loadCubemap(collisionFaces);
 
-    flagCubeMapTexture = loadCubemap(flagFaces);
+    flagCubeMapTexture = TextureLoader::loadCubemap(flagFaces);
 
     SDL_Surface* iconSurface = IMG_Load((fs::path(basePath) / "assets" / "icons" / "window_icon.png").string().c_str());
     if (iconSurface) {
@@ -668,7 +668,7 @@ void Simulation::initSkybox() {
 
 void Simulation::initCollisionObjects() {
     // Generate cube
-    cube = generateCube(1.0f);
+    cube = MeshGenerator::generateCube(1.0f);
     glGenVertexArrays(1, &cubeVAO);
     glGenBuffers(1, &cubeVBO);
 
@@ -684,7 +684,7 @@ void Simulation::initCollisionObjects() {
     glBindVertexArray(0);
 
     // Generate sphere
-    sphere = generateSphere(1.0f, 20, 20);
+    sphere = MeshGenerator::generateSphere(1.0f, 20, 20);
     glGenVertexArrays(1, &sphereVAO);
     glGenBuffers(1, &sphereVBO);
 
@@ -814,7 +814,7 @@ void Simulation::initFlagMesh() {
 
     // pole
 
-    cylinder = generateCylinder(0.1f, 20.0f, 32);
+    cylinder = MeshGenerator::generateCylinder(0.1f, 20.0f, 32);
 
     glGenVertexArrays(1, &poleVAO);
     glGenBuffers(1, &poleVBO);
@@ -1084,156 +1084,6 @@ std::vector<glm::vec3> Simulation::computeNormals(const std::vector<unsigned int
         else n = glm::vec3(0, 0, 1);
     }
     return normals;
-}
-
-std::vector<PoleVertex> Simulation::generateCylinder(float radius, float height, int slices) {
-    constexpr float PI = 3.14159265359f;
-    std::vector<PoleVertex> vertices;
-
-    for (int i = 0; i < slices; i++) {
-        float theta = 2.0f * PI * i / slices;
-        float nextTheta = 2.0f * PI * (i + 1) / slices;
-
-        float x0 = radius * cos(theta), z0 = radius * sin(theta);
-        float x1 = radius * cos(nextTheta), z1 = radius * sin(nextTheta);
-
-        float y0 = 0.0f, y1 = height;
-
-        glm::vec3 n0 = glm::normalize(glm::vec3(cos(theta), 0.0f, sin(theta)));
-        glm::vec3 n1 = glm::normalize(glm::vec3(cos(nextTheta), 0.0f, sin(nextTheta)));
-
-        // First triangle
-        vertices.push_back({ glm::vec3(x0, y0, z0), n0 });
-        vertices.push_back({ glm::vec3(x1, y0, z1), n1 });
-        vertices.push_back({ glm::vec3(x1, y1, z1), n1 });
-
-        // Second triangle
-        vertices.push_back({ glm::vec3(x0, y0, z0), n0 });
-        vertices.push_back({ glm::vec3(x1, y1, z1), n1 });
-        vertices.push_back({ glm::vec3(x0, y1, z0), n0 });
-    }
-
-    return vertices;
-}
-
-std::vector<PoleVertex> Simulation::generateCube(float size) {
-    std::vector<PoleVertex> vertices;
-    float half = size * 0.5f;
-
-    // Define cube faces with normals
-    std::vector<glm::vec3> positions = {
-        // Front face
-        {-half, -half,  half}, { half, -half,  half}, { half,  half,  half},
-        {-half, -half,  half}, { half,  half,  half}, {-half,  half,  half},
-        // Back face
-        { half, -half, -half}, {-half, -half, -half}, {-half,  half, -half},
-        { half, -half, -half}, {-half,  half, -half}, { half,  half, -half},
-        // Left face
-        {-half, -half, -half}, {-half, -half,  half}, {-half,  half,  half},
-        {-half, -half, -half}, {-half,  half,  half}, {-half,  half, -half},
-        // Right face
-        { half, -half,  half}, { half, -half, -half}, { half,  half, -half},
-        { half, -half,  half}, { half,  half, -half}, { half,  half,  half},
-        // Bottom face
-        {-half, -half, -half}, { half, -half, -half}, { half, -half,  half},
-        {-half, -half, -half}, { half, -half,  half}, {-half, -half,  half},
-        // Top face
-        {-half,  half,  half}, { half,  half,  half}, { half,  half, -half},
-        {-half,  half,  half}, { half,  half, -half}, {-half,  half, -half}
-    };
-
-    std::vector<glm::vec3> normals = {
-        // Front face
-        {0, 0, 1}, {0, 0, 1}, {0, 0, 1},
-        {0, 0, 1}, {0, 0, 1}, {0, 0, 1},
-        // Back face
-        {0, 0, -1}, {0, 0, -1}, {0, 0, -1},
-        {0, 0, -1}, {0, 0, -1}, {0, 0, -1},
-        // Left face
-        {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0},
-        {-1, 0, 0}, {-1, 0, 0}, {-1, 0, 0},
-        // Right face
-        {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
-        {1, 0, 0}, {1, 0, 0}, {1, 0, 0},
-        // Bottom face
-        {0, -1, 0}, {0, -1, 0}, {0, -1, 0},
-        {0, -1, 0}, {0, -1, 0}, {0, -1, 0},
-        // Top face
-        {0, 1, 0}, {0, 1, 0}, {0, 1, 0},
-        {0, 1, 0}, {0, 1, 0}, {0, 1, 0}
-    };
-
-    for (size_t i = 0; i < positions.size(); ++i) {
-        vertices.push_back({ positions[i], normals[i] });
-    }
-
-    return vertices;
-}
-
-std::vector<PoleVertex> Simulation::generateSphere(float radius, int rings, int sectors) {
-    constexpr float PI = 3.14159265359f;
-    std::vector<PoleVertex> vertices;
-
-    for (int i = 0; i <= rings; ++i) {
-        float phi = PI * i / rings;
-        float cosPhi = cos(phi);
-        float sinPhi = sin(phi);
-
-        for (int j = 0; j <= sectors; ++j) {
-            float theta = 2.0f * PI * j / sectors;
-            float cosTheta = cos(theta);
-            float sinTheta = sin(theta);
-
-            glm::vec3 pos = {
-                radius * sinPhi * cosTheta,
-                radius * cosPhi,
-                radius * sinPhi * sinTheta
-            };
-
-            glm::vec3 normal = glm::normalize(pos);
-
-            if (i < rings && j < sectors) {
-                int first = i * (sectors + 1) + j;
-                int second = first + sectors + 1;
-
-                // First triangle
-                vertices.push_back({ pos, normal });
-
-                // Calculate next positions
-                float nextPhi = PI * (i + 1) / rings;
-                float nextTheta = 2.0f * PI * (j + 1) / sectors;
-
-                glm::vec3 pos1 = {
-                    radius * sin(nextPhi) * cos(theta),
-                    radius * cos(nextPhi),
-                    radius * sin(nextPhi) * sin(theta)
-                };
-
-                glm::vec3 pos2 = {
-                    radius * sin(nextPhi) * cos(nextTheta),
-                    radius * cos(nextPhi),
-                    radius * sin(nextPhi) * sin(nextTheta)
-                };
-
-                vertices.push_back({ pos1, glm::normalize(pos1) });
-                vertices.push_back({ pos2, glm::normalize(pos2) });
-
-                // Second triangle
-                vertices.push_back({ pos, normal });
-                vertices.push_back({ pos2, glm::normalize(pos2) });
-
-                glm::vec3 pos3 = {
-                    radius * sinPhi * cos(nextTheta),
-                    radius * cosPhi,
-                    radius * sinPhi * sin(nextTheta)
-                };
-
-                vertices.push_back({ pos3, glm::normalize(pos3) });
-            }
-        }
-    }
-
-    return vertices;
 }
 
 void Simulation::render() {
@@ -1637,83 +1487,3 @@ void Simulation::framebuffer_size_callback(int width, int height) {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-unsigned int Simulation::loadTexture(char const* path)
-{
-    unsigned int textureID;
-    glGenTextures(1, &textureID);
-
-    SDL_Surface* surface = IMG_Load(path);
-
-    if (surface)
-    {
-
-        int nrComponents = SDL_BYTESPERPIXEL(surface->format);
-
-        GLenum format;
-        if (nrComponents == 1)
-            format = GL_RED;
-        else if (nrComponents == 3)
-            format = GL_RGB;
-        else if (nrComponents == 4)
-            format = GL_RGBA;
-
-        glBindTexture(GL_TEXTURE_2D, textureID);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, surface->w, surface->h, 0, format, GL_UNSIGNED_BYTE, surface->pixels);
-        glGenerateMipmap(GL_TEXTURE_2D);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-        SDL_DestroySurface(surface);
-    }
-    else
-    {
-        SDL_Log("Failed to load texture: %s\n", SDL_GetError());
-    }
-
-    return textureID;
-}
-
-unsigned int Simulation::loadCubemap(std::array<std::string, 6> faces)
-{
-    unsigned int textureID;
-    glGenTextures(1, &textureID);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, textureID);
-
-    for (unsigned int i = 0; i < faces.size(); i++)
-    {
-        SDL_Surface* surface = IMG_Load(faces[i].c_str());
-
-
-        if (surface)
-        {
-            int nrComponents = SDL_BYTESPERPIXEL(surface->format);
-            
-            GLenum format;
-            if (nrComponents == 1)
-                format = GL_RED;
-            else if (nrComponents == 3)
-                format = GL_RGB;
-            else if (nrComponents == 4)
-                format = GL_RGBA;
-
-            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, format, surface->w, surface->h, 0, format, GL_UNSIGNED_BYTE, surface->pixels);
-
-            SDL_DestroySurface(surface);
-        }
-        else
-        {
-            SDL_Log("Cubemap texture failed to load at path: %s\n", SDL_GetError());
-
-        }
-    }
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-
-    return textureID;
-}
