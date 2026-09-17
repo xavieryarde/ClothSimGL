@@ -122,8 +122,6 @@ cmake --build out/build/mac-rel
 cmake --install out/build/mac-rel
 ```
 
-> **Note:** macOS only supports OpenGL up to version 4.1 via a forward-compatible core profile — the app requests this automatically when built on Darwin, so no manual configuration is needed.
-
 ### Linux
 
 Requires `gcc`/`g++`, `ninja-build`, and the usual OpenGL/X11/Wayland development headers for your distro (e.g. on Ubuntu: `sudo apt install build-essential ninja-build libgl1-mesa-dev`).
