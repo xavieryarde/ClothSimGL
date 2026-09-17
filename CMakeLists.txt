@@ -26,7 +26,28 @@ find_package(imgui CONFIG REQUIRED)
 file(GLOB SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp ${CMAKE_SOURCE_DIR}/external/glad/src/gl.c)
 set(HEADERS ${CMAKE_SOURCE_DIR}/include)
 
-add_executable (${PROJECT_NAME} ${SOURCES})
+set(IS_MACOS_RELEASE FALSE)
+if(APPLE AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(IS_MACOS_RELEASE TRUE)
+endif()
+
+if(IS_MACOS_RELEASE)
+    
+    set(MACOSX_ICON_FILE ${CMAKE_SOURCE_DIR}/exe_icon.icns)
+    set_source_files_properties(${MACOSX_ICON_FILE} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+
+    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES} ${MACOSX_ICON_FILE})
+
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE_ICON_FILE exe_icon.icns
+        MACOSX_BUNDLE_BUNDLE_NAME ${PROJECT_NAME}
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.xavieryarde.${PROJECT_NAME}"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0"
+    )
+else()
+    add_executable(${PROJECT_NAME} ${SOURCES})
+endif()
 
 if(WIN32)
     target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/resource.rc)
@@ -42,16 +63,22 @@ if (WIN32)
     )
 endif()
 
+if(IS_MACOS_RELEASE)
+    set(ASSET_DEST_DIR "$<TARGET_BUNDLE_CONTENT_DIR:${PROJECT_NAME}>/Resources/assets")
+else()
+    set(ASSET_DEST_DIR "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets")
+endif()
+
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_SOURCE_DIR}/assets
-            $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets)
+            ${ASSET_DEST_DIR})
 
 # adds exe and other necessary files to install dir
-install(TARGETS ${PROJECT_NAME} RUNTIME_DEPENDENCY_SET deps RUNTIME DESTINATION ${PROJECT_NAME})
-install(DIRECTORY $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets DESTINATION ${PROJECT_NAME})
+install(TARGETS ${PROJECT_NAME} RUNTIME_DEPENDENCY_SET deps RUNTIME DESTINATION ${PROJECT_NAME} BUNDLE DESTINATION ${PROJECT_NAME})
+
+if(NOT IS_MACOS_RELEASE)
+    install(DIRECTORY $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets DESTINATION ${PROJECT_NAME})
+endif()
+
 install(RUNTIME_DEPENDENCY_SET deps DESTINATION ${PROJECT_NAME} PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-" POST_EXCLUDE_REGEXES ".*system32/.*")
-
-
-
-
