@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/d74b0321-9c9e-4b48-84fc-2cad755cbc96
 - Realistic collision response with friction and damping
 
 ### Rendering
-- Modern OpenGL 4.6 with PBR-style lighting
+- Modern OpenGL 4.1 with PBR-style lighting (Downgraded from 4.6 to support macOS)
 - Skybox environments for each simulation mode
 - Textured cloth and flag materials
 - ImGui interface for real-time parameter control
@@ -30,17 +30,18 @@ https://github.com/user-attachments/assets/d74b0321-9c9e-4b48-84fc-2cad755cbc96
 
 ### Dependencies
 - **SDL3** - Windowing and input handling
-- **OpenGL 4.6** - Graphics rendering
+- **OpenGL 4.1** - Graphics rendering
 - **GLM** - Mathematics library
 - **SDL3_image** - Texture loading
 - **Dear ImGui** - GUI interface
 - **GLAD** - OpenGL loader
 - **CMake 3.21+** - Build system
+- **Ninja** - Build tool
 - **vcpkg** - Package manager
 
 ### System Requirements
-- OpenGL 4.6 compatible graphics card
-- Windows
+- OpenGL 4.1 compatible graphics card
+- Windows, macOS, or Linux
 - C++23 compatible compiler
 
 ## Building
@@ -48,6 +49,10 @@ https://github.com/user-attachments/assets/d74b0321-9c9e-4b48-84fc-2cad755cbc96
 ### Prerequisites
 1. Install [vcpkg](https://github.com/Microsoft/vcpkg)
 2. Set the `VCPKG_ROOT` environment variable
+3. Install [Ninja](https://ninja-build.org/) if it isn't already on your system
+   - **Windows**: included with the Visual Studio "Desktop development with C++" workload, or install via `winget install Ninja-build.Ninja`
+   - **macOS**: `brew install ninja`
+   - **Linux**: `sudo apt install ninja-build` (Debian/Ubuntu) or your distro's equivalent
 
 ### Windows (Visual Studio)
 
@@ -93,6 +98,56 @@ cmake --build build/win64-rel
 cmake --install build/win64-rel
 ```
 
+### macOS
+
+Requires Xcode Command Line Tools (`xcode-select --install`) for `clang`/`clang++`, plus Homebrew for `ninja`.
+
+**Available Configure Presets:**
+- `mac-dbg` - Debug build
+- `mac-rel` - Release build (recommended)
+
+**Available Build Presets:**
+- `mac-dbg` - Debug build
+- `mac-rel` - Release build (recommended)
+
+```bash
+# Configure
+cmake --preset mac-rel
+
+# Build
+cmake --build out/build/mac-rel
+# Alternative: cmake --build --preset mac-rel
+
+# Install
+cmake --install out/build/mac-rel
+```
+
+> **Note:** macOS only supports OpenGL up to version 4.1 via a forward-compatible core profile — the app requests this automatically when built on Darwin, so no manual configuration is needed.
+
+### Linux
+
+Requires `gcc`/`g++`, `ninja-build`, and the usual OpenGL/X11/Wayland development headers for your distro (e.g. on Ubuntu: `sudo apt install build-essential ninja-build libgl1-mesa-dev`).
+
+**Available Configure Presets:**
+- `linux-dbg` - Debug build
+- `linux-rel` - Release build (recommended)
+
+**Available Build Presets:**
+- `linux-dbg` - Debug build
+- `linux-rel` - Release build (recommended)
+
+```bash
+# Configure
+cmake --preset linux-rel
+
+# Build
+cmake --build out/build/linux-rel
+# Alternative: cmake --build --preset linux-rel
+
+# Install
+cmake --install out/build/linux-rel
+```
+
 ## Controls
 
 ### General
@@ -117,6 +172,3 @@ cmake --install build/win64-rel
 - **Corners** - Pin top corner particles only
 - **Flag** - Pin left edge (flag pole)
 - **None** - No pinning (free fall)
-
-## Todos
-- Add support for linux/MacOS

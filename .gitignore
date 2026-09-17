@@ -35,6 +35,7 @@
 *.exe
 *.out
 *.app
+*.DS_STORE
 
 # debug information files
 *.dwo
@@ -44,3 +45,4 @@ out
 build
 .vs
 install
+.vscode
